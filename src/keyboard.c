@@ -620,17 +620,16 @@ static int hostshift, hostctrl;
 typedef enum {
     KP_IDLE,
     KP_NEXT,
-#if 0 // SFTODO
-    KP_SHIFT_DOWN,
-    KP_SHIFT_UP,
-    KP_DELAY1,
-    KP_CTRL_DOWN,
-    KP_CTRL_UP,
-#endif
     KP_CHAR,
-    KP_DELAY2,
+    KP_DELAY,
     KP_UP
 } kp_state_t;
+
+// Fake vkey codes used in logical keyboard mode; VKEY_SHIFT_EVENT is used to indicate
+// the SHIFT key being pushed down, and VKEY_SHIFT_EVENT|1 is used to indicate it being
+// released, and similarly for VKEY_CTRL_EVENT.
+#define VKEY_SHIFT_EVENT (0xe0)
+#define VKEY_CTRL_EVENT  (0xf0)
 
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
@@ -638,16 +637,6 @@ static unsigned char *key_paste_ptr;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 static uint16_t clip_paste_key;
-
-void key_clear(void)
-{
-    int c, r;
-    for (c = 0; c < 16; c++)
-        for (r = 0; r < 16; r++)
-            bbckey[c][r] = 0;
-    // SFTODO: SET HOSTSHIFT/HOSTCTRL??? PROB NOT BUT CHECK LATER
-    sysvia_set_ca2(0);
-}
 
 static void key_update()
 {
@@ -687,6 +676,60 @@ int key_map(ALLEGRO_EVENT *event)
     return code;
 }
 
+// SFTODO: Should we change the "paste" part of all the fn/var names here? Maybe
+// ask Steve what he thinks before doing that.
+
+static void key_paste_add_vkey(uint8_t vkey)
+{
+    size_t len;
+    int pos;
+
+	log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
+
+    if (key_paste_str) {
+        len = strlen((char *)key_paste_str);
+        pos = key_paste_ptr - key_paste_str;
+    }
+    else {
+        len = 0;
+        pos = 0;
+        kp_state = KP_NEXT;
+        key_paste_shift = bbckey[0][0];
+        key_paste_ctrl = bbckey[1][0];
+    }
+
+    unsigned char *new_str = al_realloc(key_paste_str, len+2);
+    if (new_str) {
+        key_paste_str = new_str;
+        key_paste_ptr = key_paste_str + pos;
+        new_str[len] = vkey;
+        new_str[len+1] = 0;
+    }
+    else
+        log_warn("keyboard: out of memory adding key to paste, key discarded");
+}
+
+static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
+{
+	log_debug("keyboard: key_paste_add_combo vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
+
+    // The following code won't work if we have a value other than 0 or 1; force
+    // this in case we're using "typedef int bool".
+    shift = !!shift;
+    ctrl = !!ctrl;
+
+    if (key_paste_shift != shift) {
+        key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
+        key_paste_shift = shift;
+    }
+    if (key_paste_ctrl != ctrl) {
+        key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
+        key_paste_ctrl = ctrl;
+    }
+    if (vkey != 0xaa)
+        key_paste_add_vkey(vkey);
+}
+
 void key_char(ALLEGRO_EVENT *event)
 {
     if (keylogical) {
@@ -703,12 +746,12 @@ void key_char(ALLEGRO_EVENT *event)
                 default:
                     if (c <= 127) {
                         uint16_t bbckey = ascii2bbc[c];
-                        key_paste_addc(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
+                        key_paste_add_combo(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
                     }
             }
         }
         else if (vkey != 0xbb)
-            key_paste_addc(vkey, hostshift, hostctrl);
+            key_paste_add_combo(vkey, hostshift, hostctrl);
     }
 }
 
@@ -716,7 +759,9 @@ static void set_key(int code, int state)
 {
     unsigned vkey;
 
-    // SFTODO HACK
+    // We need to track the current state of the host's shift and ctrl keys so we
+    // can reset the emulated machine's keyboard to match after logical keyboard
+    // mode has generated "fake" shift/ctrl keypresses to type a certain character.
     bool shiftctrl = false;
     if ((code == ALLEGRO_KEY_LSHIFT) || (code == ALLEGRO_KEY_RSHIFT)) {
         hostshift = state;
@@ -729,18 +774,15 @@ static void set_key(int code, int state)
 
     if (!keylogical || (code == ALLEGRO_KEY_CAPSLOCK)) {
         vkey = allegro2bbc[code];
-        log_debug("keyboard: code=%d, vkey=%02X", code, vkey);
+        log_debug("keyboard: code=%d, vkey=&%02X", code, vkey);
         if (vkey != 0xaa) {
             bbckey[vkey & 15][vkey >> 4] = state;
             key_update();
         }
     }
     else {
-        // SFTODO: I THINK SET_KEY WILL HAVE TO PROCESS SHIFT+CTRL
-        // AND JUST MAYBE SOME OTHERS (BREAK?) EVEN IN LOGICAL KEYBOARD MODE - BUT
-        // VERY FEW, NOT THE ONES MARKED IN THE EXISTING ALLEGRO2BBCLOGICAL TABLE
         if (shiftctrl)
-            key_paste_addc(0xaa, hostshift, hostctrl);
+            key_paste_add_combo(0xaa, hostshift, hostctrl);
     }
 }
 
@@ -754,80 +796,6 @@ void key_up(int code)
     set_key(code, 0);
 }
 
-// SFTODO: Should we change the "paste" part of all the fn/var names here? Maybe
-// ask Steve what he thinks before doing that.
-
-#if 0 // SFTODO:DELETE
-void key_paste_start(char *str) // SFTODO: May be unused, delete if so
-{
-    if (str) {
-        log_debug("key_paste_start, str=%s", str);
-        key_paste_str = key_paste_ptr = (unsigned char *)str;
-        kp_state = KP_NEXT;
-    }
-}
-#endif
-
-static void key_paste_addc2(int ch) // SFTODO CRAP NAME
-{
-    size_t len;
-    int pos;
-
-	log_debug("keyboard: paste addc2, ch=%d", ch);
-
-    if (key_paste_str) {
-        len = strlen((char *)key_paste_str);
-        pos = key_paste_ptr - key_paste_str;
-    }
-    else {
-        len = 0;
-        pos = 0;
-        kp_state = KP_NEXT;
-        key_paste_shift = bbckey[0][0];
-        key_paste_ctrl = bbckey[1][0];
-    }
-
-    char *new_str = al_realloc(key_paste_str, len+2);
-    if (new_str) {
-        key_paste_str = (unsigned char *)new_str;
-        key_paste_ptr = key_paste_str + pos;
-        new_str[len] = ch;
-        new_str[len+1] = 0;
-    }
-    else
-        log_warn("keyboard: out of memory adding character to paste, character discarded");
-}
-
-// SFTODO MAGIC CONSTANTS EVERYWHERE!
-// SFTODO RENAME THIS AND USE addc() NAME FOR WHAT IS CURRENTLY ADDC2()
-void key_paste_addc(int ch, bool shift, bool ctrl)
-{
-	log_debug("keyboard: paste addc, ch=%d, shift=%d, ctrl=%d", ch, shift, ctrl);
-
-    if (key_paste_shift != shift) {
-        key_paste_addc2(0xe0 | shift);
-        key_paste_shift = shift;
-    }
-    if (key_paste_ctrl != ctrl) {
-        key_paste_addc2(0xf0 | ctrl);
-        key_paste_ctrl = ctrl;
-    }
-    if (ch != 0xaa)
-        key_paste_addc2(ch);
-}
-
-#if 0 // SFTODO
-static void key_paste_ctrl(void)
-{
-    if ((clip_paste_key & A2B_CTRL) && !bbckey[0][1]) // SFTODO ARGS WRONG WAY ROUND?
-        kp_state = KP_CTRL_DOWN;
-    else if (!(clip_paste_key & A2B_CTRL) && bbckey[0][1]) // SFTODO ARGS WRONG WAY ROUND?
-        kp_state = KP_CTRL_UP;
-    else
-        kp_state = KP_CHAR;
-}
-#endif
-
 void key_paste_poll(void)
 {
     unsigned ch;
@@ -838,14 +806,13 @@ void key_paste_poll(void)
             break;
         case KP_NEXT:
             if ((ch = *key_paste_ptr++)) {
-                log_debug("keyboard: clip_paste_poll ch=%02x", ch);
-                // SFTODO MAGIC CONSTANTS
+                log_debug("keyboard: clip_paste_poll ch=&%02x", ch);
                 clip_paste_key = ch;
-                if ((ch == 0xe0) || (ch == 0xe1)) {
+                if ((ch == VKEY_SHIFT_EVENT) || (ch == (VKEY_SHIFT_EVENT|1))) {
                     bbckey[0][0] = ch & 0x01;
                     kp_state = KP_NEXT;
                     key_update();
-                } else if ((ch == 0xf0) || (ch == 0xf1)) {
+                } else if ((ch == VKEY_CTRL_EVENT) || (ch == (VKEY_CTRL_EVENT|1))) {
                     bbckey[1][0] = ch & 0x01;
                     kp_state = KP_NEXT;
                     key_update();
@@ -855,48 +822,22 @@ void key_paste_poll(void)
                 }
             }
             else {
-                if (clip_paste_key < 0xe0)
+                if (clip_paste_key < VKEY_SHIFT_EVENT)
                     bbckey[clip_paste_key & 15][clip_paste_key >> 4] = 0;
-                key_update(); // SFTODO: OK? THINK ORIGINAL DIDN'T HAVE IT HERE
+                key_update();
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
 
-                key_paste_addc(0xaa, hostshift, hostctrl); // no-op if already correct
+                key_paste_add_combo(0xaa, hostshift, hostctrl); // no-op if already correct
             }
             break;
-#if 0 // SFTODO
-        case KP_SHIFT_DOWN:
-            bbckey[0][0] = 1;
-            key_update();
-            kp_state = KP_DELAY1;
-            break;
-        case KP_SHIFT_UP:
-            bbckey[0][0] = 0;
-            key_update();
-            kp_state = KP_DELAY1;
-            break;
-        case KP_DELAY1:
-            key_paste_ctrl();
-            break;
-        case KP_CTRL_DOWN:
-            bbckey[0][1] = 1; // SFTODO: ARGS WRONG WAY ROUND!?!?!
-            key_update();
-            kp_state = KP_CHAR;
-            break;
-        case KP_CTRL_UP:
-            bbckey[0][1] = 1; // SFTODO: ARGS WRONG WAY ROUND!?!?!
-            key_update();
-            kp_state = KP_CHAR;
-            break;
-#endif
         case KP_CHAR:
-            log_debug("SFTODO KP_CHAR clip_paste_key=%d", clip_paste_key);
             bbckey[clip_paste_key & 0x0f][(clip_paste_key & 0xf0) >> 4] = 1;
             key_update();
-            kp_state = KP_DELAY2;
+            kp_state = KP_DELAY;
             break;
-        case KP_DELAY2:
+        case KP_DELAY:
             kp_state = KP_UP;
             break;
         case KP_UP:
@@ -930,9 +871,7 @@ bool key_any_down(void)
 
 bool key_code_down(int code)
 {
-    // SFTODO: THIS IS USED IN ONLY ONE PLACE BUT NEED TO THINK HOW IT SHOULD
-    // INTERACT WITH LOGICAL KBD MODE
-    if (!keylogical && code < ALLEGRO_KEY_MAX) {
+    if (code < ALLEGRO_KEY_MAX) {
         code = allegro2bbc[code];
         return bbckey[code & 0x0f][code >> 4];
     }
