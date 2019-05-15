@@ -456,10 +456,10 @@ static uint8_t allegro2bbclogical[ALLEGRO_KEY_MAX] =
     0xaa,   // 212
     0xaa,   // 213
     0xaa,   // 214
-    0x00,   // 215  ALLEGRO_KEY_LSHIFT
-    0x00,   // 216  ALLEGRO_KEY_RSHIFT
-    0x01,   // 217  ALLEGRO_KEY_LCTRL
-    0x01,   // 218  ALLEGRO_KEY_RCTRL
+    0xaa,   // 215  ALLEGRO_KEY_LSHIFT
+    0xaa,   // 216  ALLEGRO_KEY_RSHIFT
+    0xaa,   // 217  ALLEGRO_KEY_LCTRL
+    0xaa,   // 218  ALLEGRO_KEY_RCTRL
     0xaa,   // 219  ALLEGRO_KEY_ALT
     0xaa,   // 220  ALLEGRO_KEY_ALTGR
     0xaa,   // 221  ALLEGRO_KEY_LWIN
@@ -641,6 +641,7 @@ void key_clear(void)
     for (c = 0; c < 16; c++)
         for (r = 0; r < 16; r++)
             bbckey[c][r] = 0;
+    // SFTODO: SET HOSTSHIFT/HOSTCTRL??? PROB NOT BUT CHECK LATER
     sysvia_set_ca2(0);
 }
 
@@ -685,6 +686,7 @@ int key_map(ALLEGRO_EVENT *event)
 void key_char(ALLEGRO_EVENT *event)
 {
     if (keylogical) {
+        log_debug("key_char: keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
         uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
         if (vkey == 0xaa) {
             int c = event->keyboard.unichar;
@@ -720,11 +722,6 @@ static void set_key(int code, int state)
         hostctrl = state;
         shiftctrl = true;
     }
-    if (shiftctrl)
-        key_paste_addc(0xaa, hostshift, hostctrl);
-    // SFTODO: I THINK SET_KEY WILL HAVE TO PROCESS SHIFT+CTRL
-    // AND JUST MAYBE SOME OTHERS (BREAK?) EVEN IN LOGICAL KEYBOARD MODE - BUT
-    // VERY FEW, NOT THE ONES MARKED IN THE EXISTING ALLEGRO2BBCLOGICAL TABLE
 
     if (!keylogical) {
         vkey = allegro2bbc[code];
@@ -733,6 +730,13 @@ static void set_key(int code, int state)
             bbckey[vkey & 15][vkey >> 4] = state;
             key_update();
         }
+    }
+    else {
+        // SFTODO: I THINK SET_KEY WILL HAVE TO PROCESS SHIFT+CTRL
+        // AND JUST MAYBE SOME OTHERS (BREAK?) EVEN IN LOGICAL KEYBOARD MODE - BUT
+        // VERY FEW, NOT THE ONES MARKED IN THE EXISTING ALLEGRO2BBCLOGICAL TABLE
+        if (shiftctrl)
+            key_paste_addc(0xaa, hostshift, hostctrl);
     }
 }
 
@@ -774,7 +778,7 @@ static void key_paste_addc2(int ch) // SFTODO CRAP NAME
         pos = 0;
         kp_state = KP_NEXT;
         key_paste_shift = bbckey[0][0];
-        key_paste_ctrl = bbckey[0][1];
+        key_paste_ctrl = bbckey[1][0];
     }
 
     char *new_str = al_realloc(key_paste_str, len+2);
@@ -809,9 +813,9 @@ void key_paste_addc(int ch, bool shift, bool ctrl)
 #if 0 // SFTODO
 static void key_paste_ctrl(void)
 {
-    if ((clip_paste_key & A2B_CTRL) && !bbckey[0][1])
+    if ((clip_paste_key & A2B_CTRL) && !bbckey[0][1]) // SFTODO ARGS WRONG WAY ROUND?
         kp_state = KP_CTRL_DOWN;
-    else if (!(clip_paste_key & A2B_CTRL) && bbckey[0][1])
+    else if (!(clip_paste_key & A2B_CTRL) && bbckey[0][1]) // SFTODO ARGS WRONG WAY ROUND?
         kp_state = KP_CTRL_UP;
     else
         kp_state = KP_CHAR;
@@ -836,7 +840,7 @@ void key_paste_poll(void)
                     kp_state = KP_NEXT;
                     key_update();
                 } else if ((ch == 0xf0) || (ch == 0xf1)) {
-                    bbckey[0][1] = ch & 0x01;
+                    bbckey[1][0] = ch & 0x01;
                     kp_state = KP_NEXT;
                     key_update();
                 }
@@ -847,8 +851,12 @@ void key_paste_poll(void)
             else {
                 if (clip_paste_key < 0xe0)
                     bbckey[clip_paste_key & 15][clip_paste_key >> 4] = 0;
+#if 1 // SFTODO
+                key_paste_addc(0xaa, hostshift, hostctrl); // no-op if already correct
+#else
                 bbckey[0][0] = hostshift;
-                bbckey[0][1] = hostctrl;
+                bbckey[1][0] = hostctrl;
+#endif
                 key_update(); // SFTODO: OK? THINK ORIGINAL DIDN'T HAVE IT HERE
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
@@ -870,18 +878,18 @@ void key_paste_poll(void)
             key_paste_ctrl();
             break;
         case KP_CTRL_DOWN:
-            bbckey[0][1] = 1;
+            bbckey[0][1] = 1; // SFTODO: ARGS WRONG WAY ROUND!?!?!
             key_update();
             kp_state = KP_CHAR;
             break;
         case KP_CTRL_UP:
-            bbckey[0][1] = 1;
+            bbckey[0][1] = 1; // SFTODO: ARGS WRONG WAY ROUND!?!?!
             key_update();
             kp_state = KP_CHAR;
             break;
 #endif
         case KP_CHAR:
-            log_debug("SFTODO2");
+            log_debug("SFTODO KP_CHAR clip_paste_key=%x", clip_paste_key);
             bbckey[clip_paste_key & 0x0f][(clip_paste_key & 0xf0) >> 4] = 1;
             key_update();
             kp_state = KP_DELAY2;
