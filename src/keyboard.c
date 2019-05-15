@@ -769,6 +769,8 @@ static void key_paste_addc2(int ch) // SFTODO CRAP NAME
     size_t len;
     int pos;
 
+	log_debug("keyboard: paste addc2, ch=%d", ch);
+
     if (key_paste_str) {
         len = strlen((char *)key_paste_str);
         pos = key_paste_ptr - key_paste_str;
@@ -851,16 +853,12 @@ void key_paste_poll(void)
             else {
                 if (clip_paste_key < 0xe0)
                     bbckey[clip_paste_key & 15][clip_paste_key >> 4] = 0;
-#if 1 // SFTODO
-                key_paste_addc(0xaa, hostshift, hostctrl); // no-op if already correct
-#else
-                bbckey[0][0] = hostshift;
-                bbckey[1][0] = hostctrl;
-#endif
                 key_update(); // SFTODO: OK? THINK ORIGINAL DIDN'T HAVE IT HERE
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
+
+                key_paste_addc(0xaa, hostshift, hostctrl); // no-op if already correct
             }
             break;
 #if 0 // SFTODO
