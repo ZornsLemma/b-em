@@ -723,7 +723,7 @@ static void set_key(int code, int state)
         shiftctrl = true;
     }
 
-    if (!keylogical) {
+    if (!keylogical || (code == ALLEGRO_KEY_CAPSLOCK)) {
         vkey = allegro2bbc[code];
         log_debug("keyboard: code=%d, vkey=%02X", code, vkey);
         if (vkey != 0xaa) {
