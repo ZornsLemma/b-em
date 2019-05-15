@@ -819,9 +819,10 @@ void key_paste_poll(void)
                 }
             }
             else {
-                if (key_paste_key < VKEY_SHIFT_EVENT)
-                    bbckey[key_paste_key & 15][key_paste_key >> 4] = 0;
-                key_update();
+                if (key_paste_key < VKEY_SHIFT_EVENT) {
+                    bbckey[key_paste_key & 0x0f][(key_paste_key & 0xf0) >> 4] = 0;
+                    key_update();
+                }
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
