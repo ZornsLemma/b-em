@@ -237,12 +237,16 @@ static uint8_t allegro2bbc[ALLEGRO_KEY_MAX] =
     0x40,   // 226  ALLEGRO_KEY_CAPSLOCK
 };
 
-// Mapping from Allegro to BBC keycodes for logical keyboard mode. If this
-// mapping generates 0xaa (an invalid keycode), we instead fake the necessary
-// keypresses to type the ASCII character we got from the ALLEGRO_EVENT_KEY_CHAR
-// event. If it generates 0xbb, we just ignore the key. Note that not all keys
-// generate an ALLEGRO_EVENT_KEY_CHAR, so some of the entries in this table can
-// never be accessed.
+// Mapping from Allegro to BBC keycodes for logical keyboard mode. We use two 
+// invalid keycodes to indicate special actions:
+// - 0xaa causes us to fake the necessary keypresses to type the ASCII character
+//   we got from the ALLEGRO_EVENT_KEY_CHAR event.
+// - 0xbb causes us to ignore the key
+// Valid keycodes cause the logical keyboard code to press and release the key
+// for that keycode.
+//
+// Note that not all keys generate an ALLEGRO_EVENT_KEY_CHAR, so some of the
+// entries in this table can never be accessed.
 static uint8_t allegro2bbclogical[ALLEGRO_KEY_MAX] =
 {
     0xbb,   // 0
@@ -756,9 +760,9 @@ static void set_key(int code, int state)
 {
     unsigned vkey;
 
-    // We need to track the current state of the host's SHIFT and CTRL keys so we
-    // can reset the emulated machine's keyboard to match after logical keyboard
-    // mode has generated "fake" SHIFT/CTRL keypresses to type a certain character.
+    // We need to track the current state of the host's SHIFT and CTRL keys;
+    // in logical keyboard mode these have only a loose connection with the
+    // emulated keyboard in bbckey[][].
     bool shiftctrl = false;
     if ((code == ALLEGRO_KEY_LSHIFT) || (code == ALLEGRO_KEY_RSHIFT)) {
         hostshift = state;
@@ -831,7 +835,11 @@ void key_paste_poll(void)
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
 
-                key_paste_add_combo(0xaa, hostshift, hostctrl); // no-op if already correct
+                // Now we've finished, make the emulated machine's SHIFT/CTRL
+                // state agree with the host's state. This doesn't cause an
+                // infinite loop because this is a no-op if the state already
+                // matches.
+                key_paste_add_combo(0xaa, hostshift, hostctrl);
             }
             break;
         case KP_CHAR:
