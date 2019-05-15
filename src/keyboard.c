@@ -241,7 +241,7 @@ static uint8_t allegro2bbc[ALLEGRO_KEY_MAX] =
 // mapping generates 0xaa (an invalid keycode), we instead fake the necessary
 // keypresses to type the ASCII character we got from the ALLEGRO_EVENT_KEY_CHAR
 // event. If it generates 0xbb, we just ignore the key. Note that not all keys
-// generate an ALLEGRO_EVENT_KEY_CHAR, so some of the entries in this cable can
+// generate an ALLEGRO_EVENT_KEY_CHAR, so some of the entries in this table can
 // never be accessed.
 static uint8_t allegro2bbclogical[ALLEGRO_KEY_MAX] =
 {
