@@ -636,7 +636,7 @@ static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
-static uint16_t clip_paste_key;
+static uint16_t key_paste_key;
 
 static void key_update()
 {
@@ -675,9 +675,6 @@ int key_map(ALLEGRO_EVENT *event)
     log_debug("keyboard: mapping %d to %d", event->keyboard.keycode, code);
     return code;
 }
-
-// SFTODO: Should we change the "paste" part of all the fn/var names here? Maybe
-// ask Steve what he thinks before doing that.
 
 static void key_paste_add_vkey(uint8_t vkey)
 {
@@ -807,7 +804,7 @@ void key_paste_poll(void)
         case KP_NEXT:
             if ((ch = *key_paste_ptr++)) {
                 log_debug("keyboard: clip_paste_poll ch=&%02x", ch);
-                clip_paste_key = ch;
+                key_paste_key = ch;
                 if ((ch == VKEY_SHIFT_EVENT) || (ch == (VKEY_SHIFT_EVENT|1))) {
                     bbckey[0][0] = ch & 0x01;
                     kp_state = KP_NEXT;
@@ -822,8 +819,8 @@ void key_paste_poll(void)
                 }
             }
             else {
-                if (clip_paste_key < VKEY_SHIFT_EVENT)
-                    bbckey[clip_paste_key & 15][clip_paste_key >> 4] = 0;
+                if (key_paste_key < VKEY_SHIFT_EVENT)
+                    bbckey[key_paste_key & 15][key_paste_key >> 4] = 0;
                 key_update();
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
@@ -833,7 +830,7 @@ void key_paste_poll(void)
             }
             break;
         case KP_CHAR:
-            bbckey[clip_paste_key & 0x0f][(clip_paste_key & 0xf0) >> 4] = 1;
+            bbckey[key_paste_key & 0x0f][(key_paste_key & 0xf0) >> 4] = 1;
             key_update();
             kp_state = KP_DELAY;
             break;
@@ -841,7 +838,7 @@ void key_paste_poll(void)
             kp_state = KP_UP;
             break;
         case KP_UP:
-            bbckey[clip_paste_key & 0x0f][(clip_paste_key & 0xf0) >> 4] = 0;
+            bbckey[key_paste_key & 0x0f][(key_paste_key & 0xf0) >> 4] = 0;
             key_update();
             kp_state = KP_NEXT;
     }
