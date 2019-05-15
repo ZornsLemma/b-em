@@ -241,7 +241,7 @@ static uint8_t allegro2bbc[ALLEGRO_KEY_MAX] =
 // invalid keycodes to indicate special actions:
 // - 0xaa causes us to fake the necessary keypresses to type the ASCII character
 //   we got from the ALLEGRO_EVENT_KEY_CHAR event.
-// - 0xbb causes us to ignore the key
+// - 0xbb causes us to ignore the key.
 // Valid keycodes cause the logical keyboard code to press and release the key
 // for that keycode.
 //
