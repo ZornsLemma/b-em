@@ -636,7 +636,7 @@ static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
-static uint16_t key_paste_key;
+static uint8_t key_paste_vkey;
 
 static void key_update()
 {
@@ -795,32 +795,36 @@ void key_up(int code)
 
 void key_paste_poll(void)
 {
-    unsigned ch;
+    uint8_t vkey;
     //log_debug("key_paste_poll: kp_state=%d", kp_state);
 
     switch(kp_state) {
         case KP_IDLE:
             break;
         case KP_NEXT:
-            if ((ch = *key_paste_ptr++)) {
-                log_debug("keyboard: clip_paste_poll ch=&%02x", ch);
-                key_paste_key = ch;
-                if ((ch == VKEY_SHIFT_EVENT) || (ch == (VKEY_SHIFT_EVENT|1))) {
-                    bbckey[0][0] = ch & 0x01;
-                    kp_state = KP_NEXT;
-                    key_update();
-                } else if ((ch == VKEY_CTRL_EVENT) || (ch == (VKEY_CTRL_EVENT|1))) {
-                    bbckey[1][0] = ch & 0x01;
-                    kp_state = KP_NEXT;
-                    key_update();
-                }
-                else {
-                    kp_state = KP_CHAR;
+            if ((vkey = *key_paste_ptr++)) {
+                int col = 1;
+                log_debug("keyboard: clip_paste_poll vkey=&%02x", vkey);
+                key_paste_vkey = vkey;
+                switch (vkey) {
+                    case VKEY_SHIFT_EVENT:
+                    case VKEY_SHIFT_EVENT|1:
+                        col = 0;
+                    case VKEY_CTRL_EVENT:
+                    case VKEY_CTRL_EVENT|1:
+                        bbckey[col][0] = vkey & 0x01;
+                        key_update();
+                        kp_state = KP_NEXT;
+                        break;
+
+                    default:
+                        kp_state = KP_CHAR;
+                        break;
                 }
             }
             else {
-                if (key_paste_key < VKEY_SHIFT_EVENT) {
-                    bbckey[key_paste_key & 0x0f][(key_paste_key & 0xf0) >> 4] = 0;
+                if (key_paste_vkey < VKEY_SHIFT_EVENT) {
+                    bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
                     key_update();
                 }
                 al_free(key_paste_str);
@@ -831,7 +835,7 @@ void key_paste_poll(void)
             }
             break;
         case KP_CHAR:
-            bbckey[key_paste_key & 0x0f][(key_paste_key & 0xf0) >> 4] = 1;
+            bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 1;
             key_update();
             kp_state = KP_DELAY;
             break;
@@ -839,7 +843,7 @@ void key_paste_poll(void)
             kp_state = KP_UP;
             break;
         case KP_UP:
-            bbckey[key_paste_key & 0x0f][(key_paste_key & 0xf0) >> 4] = 0;
+            bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
             key_update();
             kp_state = KP_NEXT;
     }
