@@ -685,7 +685,7 @@ static void key_paste_add_vkey(uint8_t vkey)
     size_t len;
     int pos;
 
-	log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
+    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
 
     if (key_paste_str) {
         len = strlen((char *)key_paste_str);
@@ -712,7 +712,7 @@ static void key_paste_add_vkey(uint8_t vkey)
 
 static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
 {
-	log_debug("keyboard: key_paste_add_combo vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
+    log_debug("keyboard: key_paste_add_combo vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
 
     // The following code won't work if we have a value other than 0 or 1; force
     // this in case we're using "typedef int bool".
@@ -816,7 +816,7 @@ void key_paste_poll(void)
                         col = 0;
                     case VKEY_CTRL_EVENT:
                     case VKEY_CTRL_EVENT|1:
-                        bbckey[col][0] = vkey & 0x01;
+                        bbckey[col][0] = vkey & 1;
                         key_update();
                         kp_state = KP_NEXT;
                         break;
