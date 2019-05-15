@@ -215,7 +215,7 @@ void os_paste_start(char *str)
     }
 }
 
-void os_paste_addc(int ch)
+void os_paste_addc(int ch) // SFTODO: This may be unused, delete if so
 {
     static const char memerr[] = "6502: out of memory adding character to OS paste, character discarded";
 

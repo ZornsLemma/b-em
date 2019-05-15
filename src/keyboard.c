@@ -237,6 +237,8 @@ static uint8_t allegro2bbc[ALLEGRO_KEY_MAX] =
     0x40,   // 226  ALLEGRO_KEY_CAPSLOCK
 };
 
+// SFTODO: Do we ever use the actual values here? If not we should simplify this
+// array...
 static uint8_t allegro2bbclogical[ALLEGRO_KEY_MAX] =
 {
     0xaa,   // 0
@@ -609,23 +611,28 @@ bool keylogical = 0;
 
 static int keycol, keyrow;
 static int bbckey[16][16];
+static int hostshift, hostctrl;
 
 typedef enum {
     KP_IDLE,
     KP_NEXT,
+#if 0 // SFTODO
     KP_SHIFT_DOWN,
     KP_SHIFT_UP,
     KP_DELAY1,
     KP_CTRL_DOWN,
     KP_CTRL_UP,
+#endif
     KP_CHAR,
     KP_DELAY2,
     KP_UP
 } kp_state_t;
 
 static kp_state_t kp_state = KP_IDLE;
-static unsigned char *clip_paste_str;
-static unsigned char *clip_paste_ptr;
+static unsigned char *key_paste_str;
+static unsigned char *key_paste_ptr;
+static bool key_paste_shift;
+static bool key_paste_ctrl;
 static uint16_t clip_paste_key;
 
 void key_clear(void)
@@ -677,18 +684,25 @@ int key_map(ALLEGRO_EVENT *event)
 
 void key_char(ALLEGRO_EVENT *event)
 {
-    if (keylogical && allegro2bbclogical[event->keyboard.keycode] == 0xaa) {
-        int c = event->keyboard.unichar;
-        switch (c)
-        {
-            case 96:  // unicode backtick
-                break;
-            case 163: // unicode pound currency symbol
-                c = 96;
-            default: {
-                os_paste_addc(c);
+    if (keylogical) {
+        uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
+        if (vkey == 0xaa) {
+            int c = event->keyboard.unichar;
+            switch (c)
+            {
+                case 96:  // unicode backtick
+                    break;
+                case 163: // unicode pound currency symbol
+                    c = 96;
+                default:
+                    if (c <= 127) {
+                        uint16_t bbckey = ascii2bbc[c];
+                        key_paste_addc(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
+                    }
             }
         }
+        else
+            key_paste_addc(vkey, hostshift, hostctrl);
     }
 }
 
@@ -696,11 +710,29 @@ static void set_key(int code, int state)
 {
     unsigned vkey;
 
-    vkey = keylogical ? allegro2bbclogical[code] : allegro2bbc[code];
-    log_debug("keyboard: code=%d, vkey=%02X", code, vkey);
-    if (vkey != 0xaa) {
-        bbckey[vkey & 15][vkey >> 4] = state;
-        key_update();
+    // SFTODO HACK
+    bool shiftctrl = false;
+    if ((code == ALLEGRO_KEY_LSHIFT) || (code == ALLEGRO_KEY_RSHIFT)) {
+        hostshift = state;
+        shiftctrl = true;
+    }
+    else if ((code == ALLEGRO_KEY_LCTRL) || (code == ALLEGRO_KEY_RCTRL)) {
+        hostctrl = state;
+        shiftctrl = true;
+    }
+    if (shiftctrl)
+        key_paste_addc(0xaa, hostshift, hostctrl);
+    // SFTODO: I THINK SET_KEY WILL HAVE TO PROCESS SHIFT+CTRL
+    // AND JUST MAYBE SOME OTHERS (BREAK?) EVEN IN LOGICAL KEYBOARD MODE - BUT
+    // VERY FEW, NOT THE ONES MARKED IN THE EXISTING ALLEGRO2BBCLOGICAL TABLE
+
+    if (!keylogical) {
+        vkey = allegro2bbc[code];
+        log_debug("keyboard: code=%d, vkey=%02X", code, vkey);
+        if (vkey != 0xaa) {
+            bbckey[vkey & 15][vkey >> 4] = state;
+            key_update();
+        }
     }
 }
 
@@ -714,15 +746,67 @@ void key_up(int code)
     set_key(code, 0);
 }
 
-void key_paste_start(char *str)
+// SFTODO: Should we change the "paste" part of all the fn/var names here? Maybe
+// ask Steve what he thinks before doing that.
+
+#if 0 // SFTODO:DELETE
+void key_paste_start(char *str) // SFTODO: May be unused, delete if so
 {
     if (str) {
         log_debug("key_paste_start, str=%s", str);
-        clip_paste_str = clip_paste_ptr = (unsigned char *)str;
+        key_paste_str = key_paste_ptr = (unsigned char *)str;
         kp_state = KP_NEXT;
     }
 }
+#endif
 
+static void key_paste_addc2(int ch) // SFTODO CRAP NAME
+{
+    size_t len;
+    int pos;
+
+    if (key_paste_str) {
+        len = strlen((char *)key_paste_str);
+        pos = key_paste_ptr - key_paste_str;
+    }
+    else {
+        len = 0;
+        pos = 0;
+        kp_state = KP_NEXT;
+        key_paste_shift = bbckey[0][0];
+        key_paste_ctrl = bbckey[0][1];
+    }
+
+    char *new_str = al_realloc(key_paste_str, len+2);
+    if (new_str) {
+        key_paste_str = (unsigned char *)new_str;
+        key_paste_ptr = key_paste_str + pos;
+        new_str[len] = ch;
+        new_str[len+1] = 0;
+    }
+    else
+        log_warn("keyboard: out of memory adding character to paste, character discarded");
+}
+
+// SFTODO MAGIC CONSTANTS EVERYWHERE!
+// SFTODO RENAME THIS AND USE addc() NAME FOR WHAT IS CURRENTLY ADDC2()
+void key_paste_addc(int ch, bool shift, bool ctrl)
+{
+	log_debug("keyboard: paste addc, ch=%d, shift=%d, ctrl=%d", ch, shift, ctrl);
+
+    if (key_paste_shift != shift) {
+        key_paste_addc2(0xe0 | shift);
+        key_paste_shift = shift;
+    }
+    if (key_paste_ctrl != ctrl) {
+        key_paste_addc2(0xf0 | ctrl);
+        key_paste_ctrl = ctrl;
+    }
+    if (ch != 0xaa)
+        key_paste_addc2(ch);
+}
+
+#if 0 // SFTODO
 static void key_paste_ctrl(void)
 {
     if ((clip_paste_key & A2B_CTRL) && !bbckey[0][1])
@@ -732,6 +816,7 @@ static void key_paste_ctrl(void)
     else
         kp_state = KP_CHAR;
 }
+#endif
 
 void key_paste_poll(void)
 {
@@ -742,33 +827,35 @@ void key_paste_poll(void)
         case KP_IDLE:
             break;
         case KP_NEXT:
-            if ((ch = *clip_paste_ptr++)) {
-                if (ch == 0xc2 && *clip_paste_ptr == 0xa3) {
-                    ch = 0x60; // convert UTF-8 pound into BBC pound.
-                    clip_paste_ptr++;
+            if ((ch = *key_paste_ptr++)) {
+                log_debug("keyboard: clip_paste_poll ch=%02x", ch);
+                // SFTODO MAGIC CONSTANTS
+                clip_paste_key = ch;
+                if ((ch == 0xe0) || (ch == 0xe1)) {
+                    bbckey[0][0] = ch & 0x01;
+                    kp_state = KP_NEXT;
+                    key_update();
+                } else if ((ch == 0xf0) || (ch == 0xf1)) {
+                    bbckey[0][1] = ch & 0x01;
+                    kp_state = KP_NEXT;
+                    key_update();
                 }
-                else if (ch == 0x0d && *clip_paste_ptr == 0x0a)
-                    clip_paste_ptr++;
-                log_debug("keybaord: clip_paste_poll ch=%02x", ch);
-                if (ch <= 127) {
-                    clip_paste_key = ascii2bbc[ch];
-                    if ((clip_paste_key & A2B_SHIFT) && !bbckey[0][0])
-                        kp_state = KP_SHIFT_DOWN;
-                    else if (!(clip_paste_key & A2B_SHIFT) && bbckey[0][0])
-                        kp_state = KP_SHIFT_UP;
-                    else
-                        key_paste_ctrl();
+                else {
+                    kp_state = KP_CHAR;
                 }
             }
             else {
-                bbckey[clip_paste_key & 15][clip_paste_key >> 4] = 0;
-                bbckey[0][0] = 0;
-                bbckey[0][1] = 0;
-                al_free(clip_paste_str);
-                clip_paste_str = clip_paste_ptr = NULL;
+                if (clip_paste_key < 0xe0)
+                    bbckey[clip_paste_key & 15][clip_paste_key >> 4] = 0;
+                bbckey[0][0] = hostshift;
+                bbckey[0][1] = hostctrl;
+                key_update(); // SFTODO: OK? THINK ORIGINAL DIDN'T HAVE IT HERE
+                al_free(key_paste_str);
+                key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
             }
             break;
+#if 0 // SFTODO
         case KP_SHIFT_DOWN:
             bbckey[0][0] = 1;
             key_update();
@@ -792,7 +879,9 @@ void key_paste_poll(void)
             key_update();
             kp_state = KP_CHAR;
             break;
+#endif
         case KP_CHAR:
+            log_debug("SFTODO2");
             bbckey[clip_paste_key & 0x0f][(clip_paste_key & 0xf0) >> 4] = 1;
             key_update();
             kp_state = KP_DELAY2;
@@ -831,8 +920,10 @@ bool key_any_down(void)
 
 bool key_code_down(int code)
 {
-    if (code < ALLEGRO_KEY_MAX) {
-        code = keylogical ? allegro2bbclogical[code] : allegro2bbc[code];
+    // SFTODO: THIS IS USED IN ONLY ONE PLACE BUT NEED TO THINK HOW IT SHOULD
+    // INTERACT WITH LOGICAL KBD MODE
+    if (!keylogical && code < ALLEGRO_KEY_MAX) {
+        code = allegro2bbc[code];
         return bbckey[code & 0x0f][code >> 4];
     }
     return false;
