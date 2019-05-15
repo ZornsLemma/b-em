@@ -756,9 +756,9 @@ static void set_key(int code, int state)
 {
     unsigned vkey;
 
-    // We need to track the current state of the host's shift and ctrl keys so we
+    // We need to track the current state of the host's SHIFT and CTRL keys so we
     // can reset the emulated machine's keyboard to match after logical keyboard
-    // mode has generated "fake" shift/ctrl keypresses to type a certain character.
+    // mode has generated "fake" SHIFT/CTRL keypresses to type a certain character.
     bool shiftctrl = false;
     if ((code == ALLEGRO_KEY_LSHIFT) || (code == ALLEGRO_KEY_RSHIFT)) {
         hostshift = state;
