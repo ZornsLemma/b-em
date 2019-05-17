@@ -613,6 +613,14 @@ static uint16_t ascii2bbc[] =
     0x59            // 0x7f DEL
 };
 
+// This array maps from Allegro keycodes to BBC keycodes *for keys which have
+// been sent to us via a KEY_CHAR event and which we haven't yet seen a KEY_UP
+// event for*. The idea here is to approximate KEY_UP and KEY_DOWN events for
+// logical keyboard mode so we can have auto-repeat working normally; the
+// emulated machine sees keys on its keyboard held down when the user holds down
+// a key on the host keyboard.
+uint8_t logical_key_down_map[ALLEGRO_KEY_MAX];
+
 int keylookup[ALLEGRO_KEY_MAX];
 bool keyas = 0;
 bool keylogical = 0;
@@ -623,16 +631,23 @@ static int hostshift, hostctrl;
 
 typedef enum {
     KP_IDLE,
-    KP_SFTODO,
+    KP_STILLDOWN,
     KP_NEXT,
     KP_CHAR,
     KP_DELAY,
     KP_UP
 } kp_state_t;
 
-// Fake vkey codes used in logical keyboard mode; VKEY_SHIFT_EVENT is used to indicate
-// the SHIFT key being pushed down, and VKEY_SHIFT_EVENT|1 is used to indicate it being
-// released, and similarly for VKEY_CTRL_EVENT.
+// Fake vkey codes used in logical keyboard mode:
+// - VKEY_SHIFT_EVENT indicates the SHIFT key being pushed down
+// - VKEY_SHIFT_EVENT|1 indicates the SHIFT key being released
+// - VKEY_CTRL_EVENT is like VKEY_SHIFT_EVENT but for the CTRL key
+// - VKEY_DOWN is used before an ordinary keycode to indicate that key being
+//   pushed down
+// - VKEY_UP is used before an ordinary keycode to indicate that key being
+//   released
+#define VKEY_DOWN        (0xc0)
+#define VKEY_UP          (0xc1)
 #define VKEY_SHIFT_EVENT (0xe0)
 #define VKEY_CTRL_EVENT  (0xf0)
 
@@ -729,20 +744,20 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
         key_paste_ctrl = ctrl;
     }
     if (vkey != 0xaa) {
-        key_paste_add_vkey(0xc0); // SFTODO EXPERIMENTAL MAGIC
+        key_paste_add_vkey(VKEY_DOWN);
         key_paste_add_vkey(vkey);
     }
 }
 
-static uint8_t SFTODOMAP[ALLEGRO_KEY_MAX]; // SFTODO MOVE DEFINITION TO TOP
 static void key_paste_map_keycode(int keycode, uint8_t vkey)
 {
-    SFTODOMAP[keycode] = vkey;
+    log_debug("keyboard: key_paste_map_keycode keycode=%d, vkey=&%02x", keycode, vkey);
+    logical_key_down_map[keycode] = vkey;
 }
 
 void key_char(ALLEGRO_EVENT *event)
 {
-    if (keylogical && !event->keyboard.repeat) { // SFTODO: && EXPERIMENTAL
+    if (keylogical && !event->keyboard.repeat) {
         log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
         uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
         if (vkey == 0xaa) {
@@ -797,14 +812,11 @@ static void set_key(int code, int state)
         if (shiftctrl)
             key_paste_add_combo(0xaa, hostshift, hostctrl);
 
-        // SFTODO: EXPERIMENTAL HACK
-        if (SFTODOMAP[code] != 0) {
-            key_paste_add_vkey(0xc1); // SFTODO MAGIC
-            key_paste_add_vkey(SFTODOMAP[code]);
-            // SFTODO: DO WE NEED TO TRACK SHIFT/CTRL WITH REGARD TO THIS HACK?
-            SFTODOMAP[code] = 0;
+        if (logical_key_down_map[code] != 0) {
+            key_paste_add_vkey(VKEY_UP);
+            key_paste_add_vkey(logical_key_down_map[code]);
+            key_paste_map_keycode(code, 0);
         }
-        // SFTODO: END EXPERIMENTAL HACK
     }
 }
 
@@ -826,9 +838,8 @@ void key_paste_poll(void)
     switch(kp_state) {
         case KP_IDLE:
             break;
-        case KP_SFTODO:
+        case KP_STILLDOWN:
             if (*key_paste_ptr == 0) {
-                log_debug("SFTODOX1");
                 break;
             }
             // fall through
@@ -848,11 +859,11 @@ void key_paste_poll(void)
                         kp_state = KP_NEXT;
                         break;
 
-                    case 0xc0: // SFTODO MAGIC
+                    case VKEY_DOWN:
                         kp_state = KP_CHAR;
                         break;
 
-                    case 0xc1: // SFTODO MAGIC
+                    case VKEY_UP:
                         kp_state = KP_UP;
                         break;
 
@@ -883,7 +894,7 @@ void key_paste_poll(void)
             kp_state = KP_DELAY;
             break;
         case KP_DELAY:
-            kp_state = KP_SFTODO;
+            kp_state = KP_STILLDOWN;
             break;
         case KP_UP:
             key_paste_vkey = *key_paste_ptr++;
