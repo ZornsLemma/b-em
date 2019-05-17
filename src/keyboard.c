@@ -623,6 +623,7 @@ static int hostshift, hostctrl;
 
 typedef enum {
     KP_IDLE,
+    KP_SFTODO,
     KP_NEXT,
     KP_CHAR,
     KP_DELAY,
@@ -727,13 +728,21 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
         key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
         key_paste_ctrl = ctrl;
     }
-    if (vkey != 0xaa)
+    if (vkey != 0xaa) {
+        key_paste_add_vkey(0xc0); // SFTODO EXPERIMENTAL MAGIC
         key_paste_add_vkey(vkey);
+    }
+}
+
+static uint8_t SFTODOMAP[ALLEGRO_KEY_MAX]; // SFTODO MOVE DEFINITION TO TOP
+static void key_paste_map_keycode(int keycode, uint8_t vkey)
+{
+    SFTODOMAP[keycode] = vkey;
 }
 
 void key_char(ALLEGRO_EVENT *event)
 {
-    if (keylogical) {
+    if (keylogical && !event->keyboard.repeat) { // SFTODO: && EXPERIMENTAL
         log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
         uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
         if (vkey == 0xaa) {
@@ -748,11 +757,14 @@ void key_char(ALLEGRO_EVENT *event)
                     if (c <= 127) {
                         uint16_t bbckey = ascii2bbc[c];
                         key_paste_add_combo(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
+                        key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff);
                     }
             }
         }
-        else if (vkey != 0xbb)
+        else if (vkey != 0xbb) {
             key_paste_add_combo(vkey, hostshift, hostctrl);
+            key_paste_map_keycode(event->keyboard.keycode, vkey);
+        }
     }
 }
 
@@ -784,6 +796,15 @@ static void set_key(int code, int state)
     else {
         if (shiftctrl)
             key_paste_add_combo(0xaa, hostshift, hostctrl);
+
+        // SFTODO: EXPERIMENTAL HACK
+        if (SFTODOMAP[code] != 0) {
+            key_paste_add_vkey(0xc1); // SFTODO MAGIC
+            key_paste_add_vkey(SFTODOMAP[code]);
+            // SFTODO: DO WE NEED TO TRACK SHIFT/CTRL WITH REGARD TO THIS HACK?
+            SFTODOMAP[code] = 0;
+        }
+        // SFTODO: END EXPERIMENTAL HACK
     }
 }
 
@@ -805,6 +826,12 @@ void key_paste_poll(void)
     switch(kp_state) {
         case KP_IDLE:
             break;
+        case KP_SFTODO:
+            if (*key_paste_ptr == 0) {
+                log_debug("SFTODOX1");
+                break;
+            }
+            // fall through
         case KP_NEXT:
             if ((vkey = *key_paste_ptr++)) {
                 int col = 1;
@@ -821,8 +848,15 @@ void key_paste_poll(void)
                         kp_state = KP_NEXT;
                         break;
 
-                    default:
+                    case 0xc0: // SFTODO MAGIC
                         kp_state = KP_CHAR;
+                        break;
+
+                    case 0xc1: // SFTODO MAGIC
+                        kp_state = KP_UP;
+                        break;
+
+                    default:
                         break;
                 }
             }
@@ -843,14 +877,16 @@ void key_paste_poll(void)
             }
             break;
         case KP_CHAR:
+            key_paste_vkey = *key_paste_ptr++;
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 1;
             key_update();
             kp_state = KP_DELAY;
             break;
         case KP_DELAY:
-            kp_state = KP_UP;
+            kp_state = KP_SFTODO;
             break;
         case KP_UP:
+            key_paste_vkey = *key_paste_ptr++;
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
             key_update();
             kp_state = KP_NEXT;
