@@ -324,7 +324,7 @@ static uint8_t allegro2bbclogical[ALLEGRO_KEY_MAX] =
     0xaa,   // 72   ALLEGRO_KEY_COMMA
     0xaa,   // 73   ALLEGRO_KEY_FULLSTOP
     0xaa,   // 74   ALLEGRO_KEY_SLASH
-    0xaa,   // 75   ALLEGRO_KEY_SPACE
+    0xaa,   // 75   ALLEGRO_KEY_SPACE // SFTODO: PROB BE BEST TO MAKE THIS 0x62 IE A DIRECT PASS THROUGH *BUT* FOR THE MOMENT IT'S HELPFUL IN EXERCISING CORNER CASES IN THE CODE SO DON'T CHANGE IT UNTIL THINGS OTHERWISE WORK WELL (THE REASON IT'S HELPFUL/THIS CHANGE IS GOOD IN THE END IS THAT ASCII2BBC SAYS SPACE HAS SHIFT=0 SO IT KEEPS FORCING THE SHIFT KEY OFF WHEN WE'RE TYPING WHILE HOLDING SHIFT DOWN - THIS ISN'T REALLY NECESSARY, BUT IT HELPS EXERCISE THINGS)
     0xbb,   // 76   ALLEGRO_KEY_INSERT
     0x59,   // 77   ALLEGRO_KEY_DELETE
     0xbb,   // 78   ALLEGRO_KEY_HOME
@@ -706,6 +706,19 @@ static void key_paste_add_vkey(uint8_t vkey)
 
     log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
 
+    if ((vkey == VKEY_SHIFT_EVENT) || (vkey == (VKEY_SHIFT_EVENT|1))) {
+        bool old_key_paste_shift = key_paste_shift;
+        key_paste_shift = vkey & 1;
+        if (old_key_paste_shift == key_paste_shift)
+            return;
+    }
+    else if ((vkey == VKEY_CTRL_EVENT) || (vkey == (VKEY_CTRL_EVENT|1))) {
+        bool old_key_paste_ctrl = key_paste_ctrl;
+        key_paste_ctrl = vkey & 1;
+        if (old_key_paste_ctrl == key_paste_ctrl)
+            return;
+    }
+
     if (key_paste_str) {
         len = strlen((char *)key_paste_str);
         pos = key_paste_ptr - key_paste_str;
@@ -727,11 +740,6 @@ static void key_paste_add_vkey(uint8_t vkey)
     }
     else
         log_warn("keyboard: out of memory adding key to paste, key discarded");
-
-    if ((vkey == VKEY_SHIFT_EVENT) || (vkey == (VKEY_SHIFT_EVENT|1)))
-        key_paste_shift = vkey & 1;
-    else if ((vkey == VKEY_CTRL_EVENT) || (vkey == (VKEY_CTRL_EVENT|1)))
-        key_paste_ctrl = vkey & 1;
 }
 
 static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
@@ -743,14 +751,8 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
-    // SFTODO: THIS "ONLY IF NEC" LOGIC MIGHT BENEFIT FROM MOVING INTO add_vkey
-    // NOW BUT THIS IS PROB FINE FOR THE MOMENT
-    if (key_paste_shift != shift) {
-        key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
-    }
-    if (key_paste_ctrl != ctrl) {
-        key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
-    }
+    key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
+    key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
     if (vkey != 0xaa) {
         key_paste_add_vkey(VKEY_DOWN);
         key_paste_add_vkey(vkey);
@@ -762,6 +764,7 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
 static char SFTODOFOO[100];
 static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
 {
+    SFTODO;
     if (key_paste_keys_down == 0) {
         key_paste_add_combo(vkey, shift, ctrl);
         key_paste_add_combo(0xaa, hostshift, hostctrl);
@@ -781,7 +784,17 @@ static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
 static void key_paste_map_keycode(int keycode, uint8_t vkey)
 {
     log_debug("keyboard: key_paste_map_keycode keycode=%d, vkey=&%02x", keycode, vkey);
-    logical_key_down_map[keycode] = vkey;
+    // SFTODO: THE "FAILURE" HANDLING HERE MAY NOT BE THE BEST, BUT FOR NOW THE
+    // MAIN THING IS TO DETECT WHEN THEY OCCUR
+    if ((vkey != 0) && (logical_key_down_map[keycode] != 0)) {
+        log_warn("keyboard: logical key down without a preceding up; ignoring");
+    }
+    else if ((vkey == 0) && (logical_key_down_map[keycode] == 0)) {
+        log_warn("keyboard: logical key up without preceding down; ignoring");
+    }
+    else {
+        logical_key_down_map[keycode] = vkey;
+    }
 }
 
 void key_char(ALLEGRO_EVENT *event)
@@ -846,8 +859,13 @@ static void set_key(int code, int state)
         // JUST RELEASED IS ONE WHICH IS STILL STUCK IN SFTODOFOO - BUT THAT
         // DOESN'T SEEM TO BE THE CURRENT PROBLEM, SO JUST MAKING THIS NOTE FOR
         // NOW
-        if ((state == 0) && (logical_key_down_map[code] != 0)) {
+        if (state == 0) {
             key_paste_add_vkey(VKEY_UP);
+            // SFTODO: IF THIS CODE LIVES MIGHT BE NICE TO CALL MAP_KEYCODE()
+            // *FIRST* AND MAYBE HAVE IT RETURN THE OLD VALUE SO WE CAN ADD_VKEY
+            // - NOT SURE, THAT MIGHT NOT HELP - BUT WE KIND OF DON'T WANT TO BE
+            // ADDING A NUL BYTE IF THE VALUE IN THE MAP IS (INCORRECTLY)
+            // ALREADY ZERO
             key_paste_add_vkey(logical_key_down_map[code]);
             key_paste_map_keycode(code, 0);
         }
