@@ -861,6 +861,26 @@ static void set_key(int code, int state)
 {
     unsigned vkey;
 
+    // SFTODO: HACK FOR DEBUGGING, PERHAPS MAKE A TIDIER VERSION OF THIS
+    // CONDITIONALLY COMPILED IN FINAL VSN
+    if ((state == 1) && (code == ALLEGRO_KEY_F11) && !key_paste_ptr) {
+        //unsigned char str[] = {VKEY_DOWN, 0x22, VKEY_UP, 0x22};
+        unsigned char str[] = {
+            VKEY_DOWN, 0x22, // E
+            VKEY_SHIFT_EVENT|1,
+            VKEY_DOWN, 0x24, // 7, but we're shifted so apostrophe
+            VKEY_SHIFT_EVENT|0,
+            VKEY_UP, 0x22,
+            VKEY_UP, 0x24
+        };
+        for (int i = 0; i < (sizeof(str) / sizeof(str[0])); i++) {
+            // SFTODO: IT *MIGHT* BE BETTER TO PUSH DIRECTLY INTO KEY_PASTE_STR
+            // BUT LET'S GO WITH THIS FOR NOW
+            key_paste_add_vkey(str[i]);
+        }
+        return;
+    }
+
     // We need to track the current state of the host's SHIFT and CTRL keys;
     // in logical keyboard mode these have only a loose connection with the
     // emulated keyboard in bbckey[][].
