@@ -656,7 +656,6 @@ typedef enum {
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
-static int key_paste_keys_down;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 static uint8_t key_paste_vkey;
@@ -761,24 +760,57 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
 }
 
 // SFTODO CRAPPY NAME ETC BUT ALL EXPERIMENTAL
-static char SFTODOFOO[100];
 static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
 {
-    SFTODO;
-    if (key_paste_keys_down == 0) {
-        key_paste_add_combo(vkey, shift, ctrl);
-        key_paste_add_combo(0xaa, hostshift, hostctrl);
+    log_debug("keyboard: key_paste_add_combo2 vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
+
+    // SFTODO: THIS IS PRETTY INEFFICIENT CODE BUT LET'S NOT WORRY ABOUT THAT
+    // FOR NOW
+
+    bool key_down[0x100] = {0};
+
+	int c, r;
+	for (c = 0; c < 16; c++) {
+		for (r = 0; r < 16; r++) {
+            if ((c <= 1) && (r == 0)) {
+                break; // not interested in SHIFT or CTRL
+            }
+			if (bbckey[c][r]) {
+                key_down[(r << 4) | c] = 1;
+            }
+        }
     }
-    else {
-        char *SFTODO = &SFTODOFOO[0] + strlen(SFTODOFOO);
-        *SFTODO++ = VKEY_SHIFT_EVENT | shift;
-        *SFTODO++ = VKEY_CTRL_EVENT | ctrl;
-        *SFTODO++ = VKEY_DOWN;
-        *SFTODO++ = vkey;
-        //*SFTODO++ = VKEY_UP;
-        //*SFTODO++ = vkey;
-        *SFTODO++ = 0;
+
+    unsigned char *p = key_paste_ptr;
+    while (p && *p) {
+        switch (*p++) {
+            case VKEY_UP:
+                key_down[*p++] = 0;
+                break;
+            case VKEY_DOWN:
+                key_down[*p++] = 1;
+                break;
+        }
     }
+
+    // We now know which keys on the emulated machine's keyboard will be down
+    // when our turn comes to influence the keyboard state. In order to avoid
+    // any of our SHIFT/CTRL hacking to influence keys already held down, we
+    // force them up. The OS would SFTODOPROBABLY ignore them anyway once our
+    // new key goes down. SFTODO: WE COULD IN FACT *AVOID* DOING ANY HACKING IF
+    // THE SHIFT AND CTRL KEYS AT THIS POINT IN SIMULATED TIME ARE EXACTLY WHAT
+    // WE WANT - BUT LET'S NOT WORRY ABOUT THAT FOR NOW
+    for (int vkey = 0; vkey < (sizeof(key_down)/sizeof(key_down[0])); vkey++) {
+        if (key_down[vkey]) {
+            log_debug("keyboard: key_paste_add_combo2 forcing vkey &%02x up", vkey);
+            key_paste_add_vkey(VKEY_UP);
+            key_paste_add_vkey(vkey);
+        }
+    }
+
+    // Now we can type the desired character.
+    key_paste_add_combo(vkey, shift, ctrl);
+    // SFTODO DON'T THINK WE WANT THIS key_paste_add_combo(0xaa, hostshift, hostctrl);
 }
 
 static void key_paste_map_keycode(int keycode, uint8_t vkey)
@@ -801,7 +833,6 @@ void key_char(ALLEGRO_EVENT *event)
 {
     if (keylogical && !event->keyboard.repeat) {
         log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
-        log_debug("SFTODO KEYS DOWN %d", key_paste_keys_down);
         uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
         if (vkey == 0xaa) {
             int c = event->keyboard.unichar;
@@ -854,20 +885,17 @@ static void set_key(int code, int state)
     else {
         if (shiftctrl)
             key_paste_add_combo(0xaa, hostshift, hostctrl);
-
-        // SFTODO: I THINK THERE'S A RISK WE MIGHT "MISS" AN UP EVENT IF THE KEY
-        // JUST RELEASED IS ONE WHICH IS STILL STUCK IN SFTODOFOO - BUT THAT
-        // DOESN'T SEEM TO BE THE CURRENT PROBLEM, SO JUST MAKING THIS NOTE FOR
-        // NOW
-        if (state == 0) {
-            key_paste_add_vkey(VKEY_UP);
-            // SFTODO: IF THIS CODE LIVES MIGHT BE NICE TO CALL MAP_KEYCODE()
-            // *FIRST* AND MAYBE HAVE IT RETURN THE OLD VALUE SO WE CAN ADD_VKEY
-            // - NOT SURE, THAT MIGHT NOT HELP - BUT WE KIND OF DON'T WANT TO BE
-            // ADDING A NUL BYTE IF THE VALUE IN THE MAP IS (INCORRECTLY)
-            // ALREADY ZERO
-            key_paste_add_vkey(logical_key_down_map[code]);
-            key_paste_map_keycode(code, 0);
+        else {
+            if (state == 0) {
+                key_paste_add_vkey(VKEY_UP);
+                // SFTODO: IF THIS CODE LIVES MIGHT BE NICE TO CALL MAP_KEYCODE()
+                // *FIRST* AND MAYBE HAVE IT RETURN THE OLD VALUE SO WE CAN ADD_VKEY
+                // - NOT SURE, THAT MIGHT NOT HELP - BUT WE KIND OF DON'T WANT TO BE
+                // ADDING A NUL BYTE IF THE VALUE IN THE MAP IS (INCORRECTLY)
+                // ALREADY ZERO
+                key_paste_add_vkey(logical_key_down_map[code]);
+                key_paste_map_keycode(code, 0);
+            }
         }
     }
 }
@@ -913,21 +941,10 @@ void key_paste_poll(void)
 
                     case VKEY_DOWN:
                         kp_state = KP_CHAR;
-                        key_paste_keys_down++;
                         break;
 
                     case VKEY_UP:
                         kp_state = KP_UP;
-                        key_paste_keys_down--;
-                        if (key_paste_keys_down == 0) {
-                            for (char *SFTODO = &SFTODOFOO[0]; *SFTODO != 0; SFTODO++) {
-                                key_paste_add_vkey((unsigned char) *SFTODO);
-                            }
-                            if (SFTODOFOO[0] != 0) {
-                                SFTODOFOO[0] = 0;
-                                key_paste_add_combo(0xaa, hostshift, hostctrl);
-                            }
-                        }
                         break;
 
                     default:
