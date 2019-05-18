@@ -629,8 +629,8 @@ typedef enum {
     KP_UP
 } kp_state_t;
 
-// Fake vkey codes used in logical keyboard mode; VKEY_SHIFT_EVENT is used to indicate
-// the SHIFT key being pushed down, and VKEY_SHIFT_EVENT|1 is used to indicate it being
+// Fake vkey codes used in logical keyboard mode; VKEY_SHIFT_EVENT|1 is used to indicate
+// the SHIFT key being pushed down, and VKEY_SHIFT_EVENT is used to indicate it being
 // released, and similarly for VKEY_CTRL_EVENT.
 #define VKEY_SHIFT_EVENT (0xe0)
 #define VKEY_CTRL_EVENT  (0xf0)
