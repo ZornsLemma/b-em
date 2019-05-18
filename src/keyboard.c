@@ -639,13 +639,15 @@ typedef enum {
 } kp_state_t;
 
 // Fake vkey codes used in logical keyboard mode:
-// - VKEY_SHIFT_EVENT indicates the SHIFT key being pushed down
-// - VKEY_SHIFT_EVENT|1 indicates the SHIFT key being released
+// - VKEY_SHIFT_EVENT|1 indicates the SHIFT key being pushed down
+// - VKEY_SHIFT_EVENT indicates the SHIFT key being released
 // - VKEY_CTRL_EVENT is like VKEY_SHIFT_EVENT but for the CTRL key
 // - VKEY_DOWN is used before an ordinary keycode to indicate that key being
 //   pushed down
 // - VKEY_UP is used before an ordinary keycode to indicate that key being
 //   released
+// SFTODO: SWAP C0 AND C1 JUST FOR CONSISTENCY WITH THE LOW BIT OF
+// VKEY_SHIFT_EVENT?
 #define VKEY_DOWN        (0xc0)
 #define VKEY_UP          (0xc1)
 #define VKEY_SHIFT_EVENT (0xe0)
@@ -654,6 +656,7 @@ typedef enum {
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
+static int key_paste_keys_down;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 static uint8_t key_paste_vkey;
@@ -724,6 +727,11 @@ static void key_paste_add_vkey(uint8_t vkey)
     }
     else
         log_warn("keyboard: out of memory adding key to paste, key discarded");
+
+    if ((vkey == VKEY_SHIFT_EVENT) || (vkey == (VKEY_SHIFT_EVENT|1)))
+        key_paste_shift = vkey & 1;
+    else if ((vkey == VKEY_CTRL_EVENT) || (vkey == (VKEY_CTRL_EVENT|1)))
+        key_paste_ctrl = vkey & 1;
 }
 
 static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
@@ -735,17 +743,38 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
+    // SFTODO: THIS "ONLY IF NEC" LOGIC MIGHT BENEFIT FROM MOVING INTO add_vkey
+    // NOW BUT THIS IS PROB FINE FOR THE MOMENT
     if (key_paste_shift != shift) {
         key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
-        key_paste_shift = shift;
     }
     if (key_paste_ctrl != ctrl) {
         key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
-        key_paste_ctrl = ctrl;
     }
     if (vkey != 0xaa) {
         key_paste_add_vkey(VKEY_DOWN);
         key_paste_add_vkey(vkey);
+    }
+    
+}
+
+// SFTODO CRAPPY NAME ETC BUT ALL EXPERIMENTAL
+static char SFTODOFOO[100];
+static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
+{
+    if (key_paste_keys_down == 0) {
+        key_paste_add_combo(vkey, shift, ctrl);
+        key_paste_add_combo(0xaa, hostshift, hostctrl);
+    }
+    else {
+        char *SFTODO = &SFTODOFOO[0] + strlen(SFTODOFOO);
+        *SFTODO++ = VKEY_SHIFT_EVENT | shift;
+        *SFTODO++ = VKEY_CTRL_EVENT | ctrl;
+        *SFTODO++ = VKEY_DOWN;
+        *SFTODO++ = vkey;
+        //*SFTODO++ = VKEY_UP;
+        //*SFTODO++ = vkey;
+        *SFTODO++ = 0;
     }
 }
 
@@ -759,6 +788,7 @@ void key_char(ALLEGRO_EVENT *event)
 {
     if (keylogical && !event->keyboard.repeat) {
         log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
+        log_debug("SFTODO KEYS DOWN %d", key_paste_keys_down);
         uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
         if (vkey == 0xaa) {
             int c = event->keyboard.unichar;
@@ -771,7 +801,7 @@ void key_char(ALLEGRO_EVENT *event)
                 default:
                     if (c <= 127) {
                         uint16_t bbckey = ascii2bbc[c];
-                        key_paste_add_combo(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
+                        key_paste_add_combo2(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
                         key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff);
                     }
             }
@@ -812,7 +842,11 @@ static void set_key(int code, int state)
         if (shiftctrl)
             key_paste_add_combo(0xaa, hostshift, hostctrl);
 
-        if (logical_key_down_map[code] != 0) {
+        // SFTODO: I THINK THERE'S A RISK WE MIGHT "MISS" AN UP EVENT IF THE KEY
+        // JUST RELEASED IS ONE WHICH IS STILL STUCK IN SFTODOFOO - BUT THAT
+        // DOESN'T SEEM TO BE THE CURRENT PROBLEM, SO JUST MAKING THIS NOTE FOR
+        // NOW
+        if ((state == 0) && (logical_key_down_map[code] != 0)) {
             key_paste_add_vkey(VKEY_UP);
             key_paste_add_vkey(logical_key_down_map[code]);
             key_paste_map_keycode(code, 0);
@@ -846,7 +880,7 @@ void key_paste_poll(void)
         case KP_NEXT:
             if ((vkey = *key_paste_ptr++)) {
                 int col = 1;
-                log_debug("keyboard: clip_paste_poll vkey=&%02x", vkey);
+                log_debug("keyboard: key_paste_poll next vkey=&%02x", vkey);
                 key_paste_vkey = vkey;
                 switch (vkey) {
                     case VKEY_SHIFT_EVENT:
@@ -861,10 +895,21 @@ void key_paste_poll(void)
 
                     case VKEY_DOWN:
                         kp_state = KP_CHAR;
+                        key_paste_keys_down++;
                         break;
 
                     case VKEY_UP:
                         kp_state = KP_UP;
+                        key_paste_keys_down--;
+                        if (key_paste_keys_down == 0) {
+                            for (char *SFTODO = &SFTODOFOO[0]; *SFTODO != 0; SFTODO++) {
+                                key_paste_add_vkey((unsigned char) *SFTODO);
+                            }
+                            if (SFTODOFOO[0] != 0) {
+                                SFTODOFOO[0] = 0;
+                                key_paste_add_combo(0xaa, hostshift, hostctrl);
+                            }
+                        }
                         break;
 
                     default:
@@ -889,6 +934,7 @@ void key_paste_poll(void)
             break;
         case KP_CHAR:
             key_paste_vkey = *key_paste_ptr++;
+            log_debug("keyboard: key_paste_poll char vkey=&%02x", key_paste_vkey);
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 1;
             key_update();
             kp_state = KP_DELAY;
@@ -898,6 +944,7 @@ void key_paste_poll(void)
             break;
         case KP_UP:
             key_paste_vkey = *key_paste_ptr++;
+            log_debug("keyboard: key_paste_poll up vkey=&%02x", key_paste_vkey);
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
             key_update();
             kp_state = KP_NEXT;
