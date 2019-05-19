@@ -613,6 +613,7 @@ static uint16_t ascii2bbc[] =
     0x59            // 0x7f DEL
 };
 
+#if 0 // SFTODO
 // This array maps from Allegro keycodes to BBC keycodes *for keys which have
 // been sent to us via a KEY_CHAR event and which we haven't yet seen a KEY_UP
 // event for*. The idea here is to approximate KEY_UP and KEY_DOWN events for
@@ -620,6 +621,7 @@ static uint16_t ascii2bbc[] =
 // emulated machine sees keys on its keyboard held down when the user holds down
 // a key on the host keyboard.
 uint8_t logical_key_down_map[ALLEGRO_KEY_MAX];
+#endif
 
 int keylookup[ALLEGRO_KEY_MAX];
 bool keyas = 0;
@@ -629,7 +631,7 @@ static int keycol, keyrow;
 static int bbckey[16][16];
 static int hostshift, hostctrl;
 
-typedef enum {
+typedef enum { // SFTODO TIDY
     KP_IDLE,
     KP_STILLDOWN,
     KP_NEXT,
@@ -659,7 +661,8 @@ typedef enum {
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
-static uint8_t key_paste_key_down;
+// SFTODO DELETE static uint8_t key_paste_key_down;
+static uint8_t key_paste_key_down2; // SFTODO REMOVE 2 - JUST USING IT FOR NOW TO SEPARATE OLD AND NEW CODE
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 static uint8_t key_paste_vkey;
@@ -752,9 +755,13 @@ static void key_paste_add_vkey_up(uint8_t vkey)
     if ((vkey == 0x00) || (vkey == 0x01)) {
         abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
     }
+    if (key_paste_key_down2 != vkey) { abort(); } // SFTODO?!?!
     key_paste_add_vkey_raw(VKEY_UP);
     key_paste_add_vkey_raw(vkey);
-    key_paste_key_down = 0;
+    // SFTODO DELETE key_paste_key_down = 0;
+    if (key_paste_key_down2 == vkey) {
+        key_paste_key_down2 = 0;
+    }
 }
 
 static void key_paste_add_vkey_down(uint8_t vkey)
@@ -764,7 +771,14 @@ static void key_paste_add_vkey_down(uint8_t vkey)
     }
     key_paste_add_vkey_raw(VKEY_DOWN);
     key_paste_add_vkey_raw(vkey);
-    key_paste_key_down = vkey;
+    // SFTODO DELETE key_paste_key_down = vkey;
+    if (key_paste_key_down2 != 0) { abort(); } // SFTODO!?
+    key_paste_key_down2 = vkey;
+}
+
+static bool key_is_down_logical(uint8_t vkey)
+{
+    return (key_paste_key_down2 != 0) && (key_paste_key_down2 == vkey);
 }
 
 static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
@@ -776,6 +790,7 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
+#if 0 // SFTODO!?
     // We don't go up-then-down if the vkey is the same; this gives more
     // "natural" OS autorepeat behaviour if you e.g. hold down "A" and
     // intermittently hold SHIFT down. SFTODO: NO, IT DOESN'T SEEM TO HELP, SO
@@ -784,15 +799,23 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
         key_paste_add_vkey_up(key_paste_key_down);
         key_paste_key_down = 0; // SFTODO REDUNDANT, DOES HAVING IT ADD CLARITY? GET RID IF NOT
     }
+#endif
 
     key_paste_add_vkey_raw(VKEY_SHIFT_EVENT | shift);
     key_paste_add_vkey_raw(VKEY_CTRL_EVENT | ctrl);
+#if 0 // SFTODO!?
     if ((vkey != 0xaa) && (key_paste_key_down != vkey)) {
         key_paste_add_vkey_down(vkey);
     }
+#else
+    if (vkey != 0xaa) {
+        key_paste_add_vkey_down(vkey);
+    }
+#endif
     
 }
 
+#if 0 // SFTODO
 // SFTODO CRAPPY NAME ETC BUT ALL EXPERIMENTAL
 static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
 {
@@ -848,7 +871,9 @@ static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
     key_paste_add_combo(vkey, shift, ctrl);
     // SFTODO DON'T THINK WE WANT THIS key_paste_add_combo(0xaa, hostshift, hostctrl);
 }
+#endif
 
+#if 0 // SFTODO
 static void key_paste_map_keycode(int keycode, uint8_t vkey)
 {
     log_debug("keyboard: key_paste_map_keycode keycode=%d, vkey=&%02x", keycode, vkey);
@@ -875,6 +900,86 @@ static void key_paste_map_keycode(int keycode, uint8_t vkey)
         logical_key_down_map[keycode] = vkey;
     }
 }
+#endif
+
+static void logical_key_clear() // SFTODO: NAME THIS key_clear_logical() INSTEAD?
+{
+    if (key_paste_key_down2 != 0) {
+        key_paste_add_vkey_up(key_paste_key_down2);
+    }
+}
+
+// Called on (derived) host key down and host key up events in logical keyboard
+// mode; unichar is only meaningful on key down events (state==1).
+static void set_key_logical(int keycode, int unichar, int state)
+{
+    static uint8_t SFTODOMAP[ALLEGRO_KEY_MAX];
+    // SFTODO: CODE MAY BENEFIT FROM REFACTORING ONCE FINAL STRUCTURE BECOMES CLEAR AND COMMONALITY BETWEEN DIFFERENT CASES (STATE/VKEY) BECOMES CLEAR
+    if (state) {
+        uint8_t vkey = allegro2bbclogical[keycode];
+        switch (vkey) {
+            // SFTODO: DEPENDING HOW FINAL CODE LOOKS, 0xaa CASE COULD MAYBE FIDDLE SOME VARS THEN FALL THROUGH INTO DEFAULT CASE - BUT DON'T WORRY ABOUT THAT FOR NOW
+            case 0xaa: // type the corresponding ASCII character
+                switch (unichar) {
+                    case 96:  // unicode backtick
+                        break;
+                    case 163: // unicode pound currency symbol
+                        unichar = 96;
+                    default: {
+                        // SFTODO: GET RID OF THE LOCAL VARS IF ALL WE DO IS USE THEM AS ARGS TO ADD_COMBO
+                        uint16_t bbc_keys = ascii2bbc[unichar];
+                        vkey = bbc_keys & 0xff;
+                        bool shift = bbc_keys & A2B_SHIFT;
+                        bool ctrl = bbc_keys & A2B_CTRL;
+                        if (key_is_down_logical(vkey)) {
+                            vkey = 0xaa;
+                        }
+                        else {
+                            logical_key_clear();
+                        }
+                        key_paste_add_combo(vkey, shift, ctrl);
+                        SFTODOMAP[keycode] = vkey;
+                        break;
+                    }
+                }
+                break;
+
+            case 0xbb: // ignore the key
+                break;
+
+            default: // type vkey SFTODO OR "PRESS" VKEY??? NOT SURE IF IMPORTANT DISTINCTION YET
+                if (key_is_down_logical(vkey)) {
+                    vkey = 0xaa;
+                }
+                else {
+                    logical_key_clear();
+                }
+                key_paste_add_combo(vkey, hostshift, hostctrl); 
+                break;
+        }
+    }
+    else {
+        uint8_t vkey = allegro2bbclogical[keycode];
+        switch (vkey) {
+            case 0xaa: // type the corresponding ASCII character SFTODO NEED TO TWEAK WORDING AS THIS IS UP NOT DOWN
+                vkey = SFTODOMAP[keycode];
+                if (vkey == 0) { abort(); } // SFTODO!?
+                if (key_is_down_logical(vkey)) {
+                    key_paste_add_vkey_up(vkey);
+                }
+                break;
+
+            case 0xbb: // ignore the key // SFTODO NEED TO TWEAK WORDING AS THIS IS UP NOT DOWN
+                break;
+            
+            default: // type SFTODO OR PRESS vkey SFTODO NEED TO TWEAK WORDING AS THIS IS UP NOT DOWN
+                if (key_is_down_logical(vkey)) {
+                    key_paste_add_vkey_up(vkey);
+                }
+                break;
+        }
+    }
+}
 
 void key_char(ALLEGRO_EVENT *event)
 {
@@ -891,6 +996,7 @@ void key_char(ALLEGRO_EVENT *event)
         if (!event->keyboard.repeat || (event->keyboard.unichar != last_unichar[event->keyboard.keycode])) {
             last_unichar[event->keyboard.keycode] = event->keyboard.unichar;
             log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
+#if 0 // SFTODO
             uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
             if (vkey == 0xaa) {
                 int c = event->keyboard.unichar;
@@ -912,6 +1018,8 @@ void key_char(ALLEGRO_EVENT *event)
                 key_paste_map_keycode(event->keyboard.keycode, vkey); // SFTODO MUST BE BE BEFORE ADD_COMBO - AKWARD BUT PUT UP WITH IT FOR NOW
                 key_paste_add_combo(vkey, hostshift, hostctrl);
             }
+#endif
+            set_key_logical(event->keyboard.keycode, event->keyboard.unichar, 1);
         }
     }
 }
@@ -975,15 +1083,28 @@ static void set_key(int code, int state)
     }
     else {
         if (shiftctrl) {
+            // If kp_state is not KP_IDLE, we will make the emulated machine's
+            // keyboard reflect hostshift and hostctrl when the KP_IDLE state is
+            // reached, so there's no need to shove unnecessary SHIFT/CTRL
+            // up/down events into the key_paste buffer.
+            // SFTODO: MAKE SURE IT *DOES* DO THAT WHEN WE TRANSITION INTO KP_IDLE
+            if (kp_state == KP_IDLE) {
+                key_paste_add_combo(0xaa, hostshift, hostctrl);
+            }
+            // SFTODO SOMETHNG!
+#if 0 // SFTODO
             // If there's a key down triggering changes in SHIFT/CTRL status
             // could interfere with how the OS interprets it, so we don't do
             // anything - we will do this later SFTODO DO WE? WHERE?
             if (key_paste_key_down == 0) {
                 key_paste_add_combo(0xaa, hostshift, hostctrl);
             }
+#endif
         }
         else {
             if (state == 0) {
+                set_key_logical(code, 0, state);
+#if 0 // SFTODO
                 uint8_t old = logical_key_down_map[code];
                 if (old != 0) { // SFTODO!?
                 // SFTODO: IF THIS CODE LIVES MIGHT BE NICE TO CALL MAP_KEYCODE()
@@ -994,6 +1115,7 @@ static void set_key(int code, int state)
                     key_paste_add_vkey_up(logical_key_down_map[code]);
                 }
                 key_paste_map_keycode(code, 0);
+#endif
             }
         }
     }
@@ -1059,7 +1181,7 @@ void key_paste_poll(void)
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
 
-#if 0 // SFTODO!? TEMP REMOVED FOR NOW AT LEAST WHILE PLAYING WITH F11 HACK
+#if 1 // SFTODO!? TEMP REMOVED FOR NOW AT LEAST WHILE PLAYING WITH F11 HACK
                 // Now we've finished, make the emulated machine's SHIFT/CTRL
                 // state agree with the host's state. This doesn't cause an
                 // infinite loop because this is a no-op if the state already
