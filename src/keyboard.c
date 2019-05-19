@@ -635,6 +635,9 @@ typedef enum {
     KP_NEXT,
     KP_CHAR,
     KP_DELAY,
+    KP_DELAY2,
+    KP_DELAY3,
+    KP_DELAY4,
     KP_UP
 } kp_state_t;
 
@@ -869,9 +872,11 @@ static void set_key(int code, int state)
             VKEY_DOWN, 0x22, // E
             VKEY_SHIFT_EVENT|1,
             VKEY_DOWN, 0x24, // 7, but we're shifted so apostrophe
+#if 0
             VKEY_SHIFT_EVENT|0,
             VKEY_UP, 0x22,
             VKEY_UP, 0x24
+#endif
         };
         for (int i = 0; i < (sizeof(str) / sizeof(str[0])); i++) {
             // SFTODO: IT *MIGHT* BE BETTER TO PUSH DIRECTLY INTO KEY_PASTE_STR
@@ -907,13 +912,16 @@ static void set_key(int code, int state)
             key_paste_add_combo(0xaa, hostshift, hostctrl);
         else {
             if (state == 0) {
-                key_paste_add_vkey(VKEY_UP);
+                uint8_t old = logical_key_down_map[code];
+                if (old != 0) { // SFTODO!?
                 // SFTODO: IF THIS CODE LIVES MIGHT BE NICE TO CALL MAP_KEYCODE()
                 // *FIRST* AND MAYBE HAVE IT RETURN THE OLD VALUE SO WE CAN ADD_VKEY
                 // - NOT SURE, THAT MIGHT NOT HELP - BUT WE KIND OF DON'T WANT TO BE
                 // ADDING A NUL BYTE IF THE VALUE IN THE MAP IS (INCORRECTLY)
                 // ALREADY ZERO
-                key_paste_add_vkey(logical_key_down_map[code]);
+                    key_paste_add_vkey(VKEY_UP);
+                    key_paste_add_vkey(logical_key_down_map[code]);
+                }
                 key_paste_map_keycode(code, 0);
             }
         }
@@ -956,7 +964,7 @@ void key_paste_poll(void)
                     case VKEY_CTRL_EVENT|1:
                         bbckey[col][0] = vkey & 1;
                         key_update();
-                        kp_state = KP_NEXT;
+                        kp_state = KP_DELAY2;
                         break;
 
                     case VKEY_DOWN:
@@ -980,11 +988,13 @@ void key_paste_poll(void)
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
 
+#if 0 // SFTODO!? TEMP REMOVED FOR NOW AT LEAST WHILE PLAYING WITH F11 HACK
                 // Now we've finished, make the emulated machine's SHIFT/CTRL
                 // state agree with the host's state. This doesn't cause an
                 // infinite loop because this is a no-op if the state already
                 // matches.
                 key_paste_add_combo(0xaa, hostshift, hostctrl);
+#endif
             }
             break;
         case KP_CHAR:
@@ -995,14 +1005,23 @@ void key_paste_poll(void)
             kp_state = KP_DELAY;
             break;
         case KP_DELAY:
+            kp_state = KP_DELAY4;
+            break;
+        case KP_DELAY4:
             kp_state = KP_STILLDOWN;
+            break;
+        case KP_DELAY2:
+            kp_state = KP_DELAY3;
+            break;
+        case KP_DELAY3:
+            kp_state = KP_NEXT;
             break;
         case KP_UP:
             key_paste_vkey = *key_paste_ptr++;
             log_debug("keyboard: key_paste_poll up vkey=&%02x", key_paste_vkey);
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
             key_update();
-            kp_state = KP_NEXT;
+            kp_state = KP_DELAY2;
     }
 }
 
