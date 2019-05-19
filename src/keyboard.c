@@ -870,28 +870,40 @@ static void key_paste_map_keycode(int keycode, uint8_t vkey)
 
 void key_char(ALLEGRO_EVENT *event)
 {
-    if (keylogical && !event->keyboard.repeat) {
-        log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
-        uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
-        if (vkey == 0xaa) {
-            int c = event->keyboard.unichar;
-            switch (c)
-            {
-                case 96:  // unicode backtick
-                    break;
-                case 163: // unicode pound currency symbol
-                    c = 96;
-                default:
-                    if (c <= 127) {
-                        uint16_t bbckey = ascii2bbc[c];
-                        key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff); // SFTODO MUST BE BEFORE ADD_COMBO - AWKWARD BUT PUT UP WITH IT FOR NOW
-                        key_paste_add_combo2(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
-                    }
+    static int last_unichar[ALLEGRO_KEY_MAX];
+    if (keylogical) {
+        // SFTODO: COMMENT - THE REASON FOR THE '||' BIT HERE AND last_unichar[]
+        // IS THAT IF YOU EG HOLD DOWN ";" THEN (KEEPING IT DOWN) HOLD SHIFT
+        // DOWN WE GET A KEYCHAR FOR ":" WHICH IS NOT FLAGGED AS A REPEAT, *BUT*
+        // IF WE THEN LET GO OF SHIFT WHILE STILL HOLDING DOWN ";" WE GET A
+        // KEYCHAR FOR ";" WHICH *IS* FLAGGED AS A REPEAT. I COULD SEE WHY THIS
+        // MIGHT BE LOGICAL BEHAVIOUR FROM ALLEGRO'S POV BUT HERE WE DO WANT TO
+        // IGNORE REPEATS "NORMALLY" BUT SINCE THE UNICHAR HAS CHANGED WE DON'T WANT TO
+        // IGONRE THIS.
+        if (!event->keyboard.repeat || (event->keyboard.unichar != last_unichar[event->keyboard.keycode])) {
+            last_unichar[event->keyboard.keycode] = event->keyboard.unichar;
+            log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
+            uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
+            if (vkey == 0xaa) {
+                int c = event->keyboard.unichar;
+                switch (c)
+                {
+                    case 96:  // unicode backtick
+                        break;
+                    case 163: // unicode pound currency symbol
+                        c = 96;
+                    default:
+                        if (c <= 127) {
+                            uint16_t bbckey = ascii2bbc[c];
+                            key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff); // SFTODO MUST BE BEFORE ADD_COMBO - AWKWARD BUT PUT UP WITH IT FOR NOW
+                            key_paste_add_combo2(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
+                        }
+                }
             }
-        }
-        else if (vkey != 0xbb) {
-            key_paste_map_keycode(event->keyboard.keycode, vkey); // SFTODO MUST BE BE BEFORE ADD_COMBO - AKWARD BUT PUT UP WITH IT FOR NOW
-            key_paste_add_combo(vkey, hostshift, hostctrl);
+            else if (vkey != 0xbb) {
+                key_paste_map_keycode(event->keyboard.keycode, vkey); // SFTODO MUST BE BE BEFORE ADD_COMBO - AKWARD BUT PUT UP WITH IT FOR NOW
+                key_paste_add_combo(vkey, hostshift, hostctrl);
+            }
         }
     }
 }
