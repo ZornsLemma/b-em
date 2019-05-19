@@ -115,7 +115,6 @@ void main_reset()
     if (curtube != -1) tubes[curtube].reset();
     else               tube_exec = NULL;
     tube_reset();
-    key_reset();
 
     memset(ram, 0, 64 * 1024);
 }

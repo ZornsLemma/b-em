@@ -780,7 +780,6 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
 
 // Called on (derived) host key down and host key up events in logical keyboard
 // mode; unichar is only meaningful on key down events (state==1).
-// SFTODO: CONVERT ALL MY NEW CODE TO STANDARD STYLE WITH NO BRACES AROUND SINGLE-LINE IF BODIES
 static void set_key_logical(int keycode, int unichar, int state)
 {
     static uint8_t keycode_to_vkey_map[ALLEGRO_KEY_MAX];
@@ -862,6 +861,9 @@ void key_char(ALLEGRO_EVENT *event)
     // hold down ";" and then intermittently press the SHIFT key.)
     static int last_unichar[ALLEGRO_KEY_MAX];
     if (keylogical) {
+        if (event->keyboard.keycode == ALLEGRO_KEY_F12)
+            return;
+
         if (!event->keyboard.repeat || (event->keyboard.unichar != last_unichar[event->keyboard.keycode])) {
             last_unichar[event->keyboard.keycode] = event->keyboard.unichar;
             log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
@@ -901,7 +903,7 @@ static void set_key(int code, int state)
         shiftctrl = true;
     }
 
-    if (!keylogical || (code == ALLEGRO_KEY_CAPSLOCK)) {
+    if (!keylogical || (code == ALLEGRO_KEY_CAPSLOCK) || (code == ALLEGRO_KEY_F12)) {
         vkey = allegro2bbc[code];
         log_debug("keyboard: code=%d, vkey=&%02X", code, vkey);
         if (vkey != 0xaa) {
@@ -1012,19 +1014,26 @@ bool key_is_down(void) {
 
 bool key_any_down(void)
 {
-    for (int c = 0; c < 16; c++)
-        for (int r = 1; r < 16; r++)
-            if (bbckey[c][r])
-                return true;
-    return false;
+    if (!keylogical) {
+        for (int c = 0; c < 16; c++)
+            for (int r = 1; r < 16; r++)
+                if (bbckey[c][r])
+                    return true;
+        return false;
+    }
+    else
+        return key_paste_vkey_down != 0;
 }
 
-// SFTODO: S-BREAK DOESN'T SELECT VDFS IN LOGICAL KEYBOARD MODE
 bool key_code_down(int code)
 {
     if (code < ALLEGRO_KEY_MAX) {
         code = allegro2bbc[code];
-        return bbckey[code & 0x0f][code >> 4];
+        assert((code != 0x00) && (code != 0x01)); // not SHIFT or CTRL
+        if (!keylogical)
+            return bbckey[code & 0x0f][code >> 4];
+        else
+            return (key_paste_vkey_down != 0) && (key_paste_vkey_down == code);
     }
     return false;
 }
