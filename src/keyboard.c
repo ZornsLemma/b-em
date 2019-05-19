@@ -772,117 +772,12 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
-#if 0 // SFTODO!?
-    // We don't go up-then-down if the vkey is the same; this gives more
-    // "natural" OS autorepeat behaviour if you e.g. hold down "A" and
-    // intermittently hold SHIFT down. SFTODO: NO, IT DOESN'T SEEM TO HELP, SO
-    // THIS MINOR ISSUE REMAINS FOR THE MOMENT
-    if ((vkey != 0xaa) && (key_paste_key_down != 0) && (key_paste_key_down != vkey)) {
-        key_paste_add_vkey_up(key_paste_key_down);
-        key_paste_key_down = 0; // SFTODO REDUNDANT, DOES HAVING IT ADD CLARITY? GET RID IF NOT
-    }
-#endif
-
     key_paste_add_vkey_raw(VKEY_SHIFT_EVENT | shift);
     key_paste_add_vkey_raw(VKEY_CTRL_EVENT | ctrl);
-#if 0 // SFTODO!?
-    if ((vkey != 0xaa) && (key_paste_key_down != vkey)) {
-        key_paste_add_vkey_down(vkey);
-    }
-#else
     if (vkey != 0xaa) {
         key_paste_add_vkey_down(vkey);
     }
-#endif
-    
 }
-
-#if 0 // SFTODO
-// SFTODO CRAPPY NAME ETC BUT ALL EXPERIMENTAL
-static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
-{
-    log_debug("keyboard: key_paste_add_combo2 vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
-
-#if 0 // SFTODO!?
-    // SFTODO: THIS IS PRETTY INEFFICIENT CODE BUT LET'S NOT WORRY ABOUT THAT
-    // FOR NOW
-
-    bool key_down[0x100] = {0};
-
-	int c, r;
-	for (c = 0; c < 16; c++) {
-		for (r = 0; r < 16; r++) {
-            if ((c <= 1) && (r == 0)) {
-                continue; // not interested in SHIFT or CTRL
-            }
-			if (bbckey[c][r]) {
-                log_debug("SFTODO c%d r%d", c, r);
-                key_down[(r << 4) | c] = 1;
-            }
-        }
-    }
-
-    unsigned char *p = key_paste_ptr;
-    while (p && *p) {
-        switch (*p++) {
-            case VKEY_UP:
-                key_down[*p++] = 0;
-                break;
-            case VKEY_DOWN:
-                key_down[*p++] = 1;
-                break;
-        }
-    }
-
-    // We now know which keys on the emulated machine's keyboard will be down
-    // when our turn comes to influence the keyboard state. In order to avoid
-    // any of our SHIFT/CTRL hacking to influence keys already held down, we
-    // force them up. The OS would SFTODOPROBABLY ignore them anyway once our
-    // new key goes down. SFTODO: WE COULD IN FACT *AVOID* DOING ANY HACKING IF
-    // THE SHIFT AND CTRL KEYS AT THIS POINT IN SIMULATED TIME ARE EXACTLY WHAT
-    // WE WANT - BUT LET'S NOT WORRY ABOUT THAT FOR NOW
-    for (int vkey = 0; vkey < (sizeof(key_down)/sizeof(key_down[0])); vkey++) {
-        if (key_down[vkey]) {
-            log_debug("keyboard: key_paste_add_combo2 forcing vkey &%02x up", vkey);
-            key_paste_add_vkey_up(VKEY_UP);
-        }
-    }
-#endif
-
-    // Now we can type the desired character.
-    key_paste_add_combo(vkey, shift, ctrl);
-    // SFTODO DON'T THINK WE WANT THIS key_paste_add_combo(0xaa, hostshift, hostctrl);
-}
-#endif
-
-#if 0 // SFTODO
-static void key_paste_map_keycode(int keycode, uint8_t vkey)
-{
-    log_debug("keyboard: key_paste_map_keycode keycode=%d, vkey=&%02x", keycode, vkey);
-    // SFTODO: THE "FAILURE" HANDLING HERE MAY NOT BE THE BEST, BUT FOR NOW THE
-    // MAIN THING IS TO DETECT WHEN THEY OCCUR
-    if ((vkey != 0) && (logical_key_down_map[keycode] != 0)) {
-        // SFTODO: WE PROB SHOULDN'T WARN ABOUT THIS - IT OCCURS IF FOR EXAMPLE
-        // YOU HOLD DOWN ";" AND THEN - WHILE STILL HOLDING ";" DOWN - START
-        // HOLDING DOWN SHIFT AS WELL - THAT GENERATES A KEY_CHAR EVENT FOR ":"
-        // BUT WE HAVE NEVER HAD A KEY UP EVENT FOR ";" (WHICH IS REASONABLE,
-        // REALLY)
-        log_warn("keyboard: logical key down without a preceding up; ignoring");
-        // SFTODO: I HAVE OTHER LOGIC FOR THIS TOO, DO I NEED THE OTHER LOGIC AS
-        // WELL?
-        if (key_paste_key_down != vkey) {
-            key_paste_add_vkey_up(logical_key_down_map[keycode]);
-        }
-        logical_key_down_map[keycode] = vkey;
-    }
-    else if ((vkey == 0) && (logical_key_down_map[keycode] == 0)) {
-        log_warn("keyboard: logical key up without preceding down; ignoring");
-    }
-    else {
-        logical_key_down_map[keycode] = vkey;
-    }
-}
-#endif
 
 static void logical_key_clear() // SFTODO: NAME THIS key_clear_logical() INSTEAD?
 {
@@ -948,84 +843,50 @@ static void set_key_logical(int keycode, int unichar, int state)
     }
 }
 
+// SFTODO: ADD log_debug() LINES IN SENSIBLE PLACES IN MY NEW CODE
+
+// Handle KEY_CHAR events in logical keyboard mode and turn them into "key down"
+// events sent to set_key_logical().
 void key_char(ALLEGRO_EVENT *event)
 {
+    // KEY_CHAR events indicate if the event is for an auto-repeating key, and
+    // we ignore such events because we're passing key up/down events through
+    // to the emulated machine and its OS is handling auto-repeat. However, if
+    // a key is held down on the host but SHIFT is pressed then released, when
+    // the KEY_CHAR event comes through on SHIFT being released the unichar has
+    // changed but the repeat flag is still set. We want to consider such an
+    // event for changing the emulated machine's keyboard state, so we need to
+    // detect this happening and process such an event even if the repeat flag
+    // is set. (To see this happening, on a keyboard with ":" on SHIFT+";",
+    // hold down ";" and then intermittently press the SHIFT key.)
     static int last_unichar[ALLEGRO_KEY_MAX];
     if (keylogical) {
-        // SFTODO: COMMENT - THE REASON FOR THE '||' BIT HERE AND last_unichar[]
-        // IS THAT IF YOU EG HOLD DOWN ";" THEN (KEEPING IT DOWN) HOLD SHIFT
-        // DOWN WE GET A KEYCHAR FOR ":" WHICH IS NOT FLAGGED AS A REPEAT, *BUT*
-        // IF WE THEN LET GO OF SHIFT WHILE STILL HOLDING DOWN ";" WE GET A
-        // KEYCHAR FOR ";" WHICH *IS* FLAGGED AS A REPEAT. I COULD SEE WHY THIS
-        // MIGHT BE LOGICAL BEHAVIOUR FROM ALLEGRO'S POV BUT HERE WE DO WANT TO
-        // IGNORE REPEATS "NORMALLY" BUT SINCE THE UNICHAR HAS CHANGED WE DON'T WANT TO
-        // IGONRE THIS.
         if (!event->keyboard.repeat || (event->keyboard.unichar != last_unichar[event->keyboard.keycode])) {
             last_unichar[event->keyboard.keycode] = event->keyboard.unichar;
             log_debug("keyboard: key_char keycode=%d, unichar=%d", event->keyboard.keycode, event->keyboard.unichar);
-#if 0 // SFTODO
-            uint8_t vkey = allegro2bbclogical[event->keyboard.keycode];
-            if (vkey == 0xaa) {
-                int c = event->keyboard.unichar;
-                switch (c)
-                {
-                    case 96:  // unicode backtick
-                        break;
-                    case 163: // unicode pound currency symbol
-                        c = 96;
-                    default:
-                        if (c <= 127) {
-                            uint16_t bbckey = ascii2bbc[c];
-                            key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff); // SFTODO MUST BE BEFORE ADD_COMBO - AWKWARD BUT PUT UP WITH IT FOR NOW
-                            key_paste_add_combo2(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
-                        }
-                }
-            }
-            else if (vkey != 0xbb) {
-                key_paste_map_keycode(event->keyboard.keycode, vkey); // SFTODO MUST BE BE BEFORE ADD_COMBO - AKWARD BUT PUT UP WITH IT FOR NOW
-                key_paste_add_combo(vkey, hostshift, hostctrl);
-            }
-#endif
             set_key_logical(event->keyboard.keycode, event->keyboard.unichar, 1);
         }
+    }
+}
+
+// Set the emulated machine's SHIFT/CTRL state to match the host machine's
+// state, provided the host machine has no keys held down (if it does, KEY_CHAR
+// events will cause any necessary SHIFT/CTRL state to be passed through to the
+// emulated machine at the appropriate point) and there are no keyboard events
+// waiting to be passed through to the emulated machine (if there are, the
+// current state of the host's keyboard is irrelevant; this function will be
+// called again to pick up the then-current state when the pending keyboard
+// events have all been processed).
+static void set_logical_shift_ctrl_if_idle()
+{
+    if ((kp_state == KP_IDLE) && (key_paste_key_down2 == 0)) {
+        key_paste_add_combo(0xaa, hostshift, hostctrl);
     }
 }
 
 static void set_key(int code, int state)
 {
     unsigned vkey;
-
-    // SFTODO: HACK FOR DEBUGGING, PERHAPS MAKE A TIDIER VERSION OF THIS
-    // CONDITIONALLY COMPILED IN FINAL VSN
-    if ((state == 1) && (code == ALLEGRO_KEY_F11) && !key_paste_ptr) {
-        //unsigned char str[] = {VKEY_DOWN, 0x22, VKEY_UP, 0x22};
-        unsigned char str[] = {
-#if 0
-            VKEY_DOWN, 0x22, // E
-            VKEY_SHIFT_EVENT|1,
-            VKEY_DOWN, 0x24, // 7, but we're shifted so apostrophe
-#if 0
-            VKEY_SHIFT_EVENT|0,
-            VKEY_UP, 0x22,
-            VKEY_UP, 0x24
-#endif
-#endif
-            VKEY_SHIFT_EVENT|1,
-            VKEY_DOWN, 0x25, // I
-            VKEY_DOWN, 0x55, // N
-            VKEY_DOWN, 0x53, // G
-            VKEY_UP, 0x25,
-            VKEY_UP, 0x55,
-            VKEY_UP, 0x53,
-            VKEY_SHIFT_EVENT
-        };
-        for (int i = 0; i < (sizeof(str) / sizeof(str[0])); i++) {
-            // SFTODO: IT *MIGHT* BE BETTER TO PUSH DIRECTLY INTO KEY_PASTE_STR
-            // BUT LET'S GO WITH THIS FOR NOW
-            key_paste_add_vkey_raw(str[i]);
-        }
-        return;
-    }
 
     // We need to track the current state of the host's SHIFT and CTRL keys;
     // in logical keyboard mode these have only a loose connection with the
@@ -1050,40 +911,11 @@ static void set_key(int code, int state)
     }
     else {
         if (shiftctrl) {
-            // If kp_state is not KP_IDLE, we will make the emulated machine's
-            // keyboard reflect hostshift and hostctrl when the KP_IDLE state is
-            // reached, so there's no need to shove unnecessary SHIFT/CTRL
-            // up/down events into the key_paste buffer.
-            // SFTODO: MAKE SURE IT *DOES* DO THAT WHEN WE TRANSITION INTO KP_IDLE
-            // SFTODO UPDATE COMMENT TO REFLECT NEW CHANGE
-            if ((kp_state == KP_IDLE) && (key_paste_key_down2 == 0)) {
-                key_paste_add_combo(0xaa, hostshift, hostctrl);
-            }
-            // SFTODO SOMETHNG!
-#if 0 // SFTODO
-            // If there's a key down triggering changes in SHIFT/CTRL status
-            // could interfere with how the OS interprets it, so we don't do
-            // anything - we will do this later SFTODO DO WE? WHERE?
-            if (key_paste_key_down == 0) {
-                key_paste_add_combo(0xaa, hostshift, hostctrl);
-            }
-#endif
+            set_logical_shift_ctrl_if_idle();
         }
         else {
             if (state == 0) {
                 set_key_logical(code, 0, state);
-#if 0 // SFTODO
-                uint8_t old = logical_key_down_map[code];
-                if (old != 0) { // SFTODO!?
-                // SFTODO: IF THIS CODE LIVES MIGHT BE NICE TO CALL MAP_KEYCODE()
-                // *FIRST* AND MAYBE HAVE IT RETURN THE OLD VALUE SO WE CAN ADD_VKEY
-                // - NOT SURE, THAT MIGHT NOT HELP - BUT WE KIND OF DON'T WANT TO BE
-                // ADDING A NUL BYTE IF THE VALUE IN THE MAP IS (INCORRECTLY)
-                // ALREADY ZERO
-                    key_paste_add_vkey_up(logical_key_down_map[code]);
-                }
-                key_paste_map_keycode(code, 0);
-#endif
             }
         }
     }
@@ -1143,10 +975,8 @@ void key_paste_poll(void)
                 // Now we've finished, make the emulated machine's SHIFT/CTRL
                 // state agree with the host's state. This doesn't cause an
                 // infinite loop because this is a no-op if the state already
-                // matches. SFTODO: UPDATE FOR NEW CONDITION
-                if (key_paste_key_down2 == 0) {
-                    key_paste_add_combo(0xaa, hostshift, hostctrl);
-                }
+                // matches.
+                set_logical_shift_ctrl_if_idle();
             }
             break;
 
