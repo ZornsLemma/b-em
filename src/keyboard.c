@@ -776,14 +776,18 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
-    if ((vkey != 0xaa) && (key_paste_key_down != 0)) {
+    // We don't go up-then-down if the vkey is the same; this gives more
+    // "natural" OS autorepeat behaviour if you e.g. hold down "A" and
+    // intermittently hold SHIFT down. SFTODO: NO, IT DOESN'T SEEM TO HELP, SO
+    // THIS MINOR ISSUE REMAINS FOR THE MOMENT
+    if ((vkey != 0xaa) && (key_paste_key_down != 0) && (key_paste_key_down != vkey)) {
         key_paste_add_vkey_up(key_paste_key_down);
-        key_paste_key_down = 0;
+        key_paste_key_down = 0; // SFTODO REDUNDANT, DOES HAVING IT ADD CLARITY? GET RID IF NOT
     }
 
     key_paste_add_vkey_raw(VKEY_SHIFT_EVENT | shift);
     key_paste_add_vkey_raw(VKEY_CTRL_EVENT | ctrl);
-    if (vkey != 0xaa) {
+    if ((vkey != 0xaa) && (key_paste_key_down != vkey)) {
         key_paste_add_vkey_down(vkey);
     }
     
@@ -857,7 +861,11 @@ static void key_paste_map_keycode(int keycode, uint8_t vkey)
         // BUT WE HAVE NEVER HAD A KEY UP EVENT FOR ";" (WHICH IS REASONABLE,
         // REALLY)
         log_warn("keyboard: logical key down without a preceding up; ignoring");
-        key_paste_add_vkey_up(logical_key_down_map[keycode]);
+        // SFTODO: I HAVE OTHER LOGIC FOR THIS TOO, DO I NEED THE OTHER LOGIC AS
+        // WELL?
+        if (key_paste_key_down != vkey) {
+            key_paste_add_vkey_up(logical_key_down_map[keycode]);
+        }
         logical_key_down_map[keycode] = vkey;
     }
     else if ((vkey == 0) && (logical_key_down_map[keycode] == 0)) {
