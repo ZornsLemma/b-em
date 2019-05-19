@@ -324,7 +324,7 @@ static uint8_t allegro2bbclogical[ALLEGRO_KEY_MAX] =
     0xaa,   // 72   ALLEGRO_KEY_COMMA
     0xaa,   // 73   ALLEGRO_KEY_FULLSTOP
     0xaa,   // 74   ALLEGRO_KEY_SLASH
-    0xaa,   // 75   ALLEGRO_KEY_SPACE // SFTODO: PROB BE BEST TO MAKE THIS 0x62 IE A DIRECT PASS THROUGH *BUT* FOR THE MOMENT IT'S HELPFUL IN EXERCISING CORNER CASES IN THE CODE SO DON'T CHANGE IT UNTIL THINGS OTHERWISE WORK WELL (THE REASON IT'S HELPFUL/THIS CHANGE IS GOOD IN THE END IS THAT ASCII2BBC SAYS SPACE HAS SHIFT=0 SO IT KEEPS FORCING THE SHIFT KEY OFF WHEN WE'RE TYPING WHILE HOLDING SHIFT DOWN - THIS ISN'T REALLY NECESSARY, BUT IT HELPS EXERCISE THINGS)
+    0x62,   // 75   ALLEGRO_KEY_SPACE
     0xbb,   // 76   ALLEGRO_KEY_INSERT
     0x59,   // 77   ALLEGRO_KEY_DELETE
     0xbb,   // 78   ALLEGRO_KEY_HOME
@@ -637,10 +637,8 @@ typedef enum {
 //   pushed down
 // - VKEY_UP is used before an ordinary keycode to indicate that key being
 //   released
-// SFTODO: SWAP C0 AND C1 JUST FOR CONSISTENCY WITH THE LOW BIT OF
-// VKEY_SHIFT_EVENT?
-#define VKEY_DOWN        (0xc0)
-#define VKEY_UP          (0xc1)
+#define VKEY_UP          (0xd0)
+#define VKEY_DOWN        (0xd1)
 #define VKEY_SHIFT_EVENT (0xe0)
 #define VKEY_CTRL_EVENT  (0xf0)
 
@@ -778,7 +776,7 @@ static void logical_key_clear() // SFTODO: NAME THIS key_clear_logical() INSTEAD
 // SFTODO: CONVERT ALL MY NEW CODE TO STANDARD STYLE WITH NO BRACES AROUND SINGLE-LINE IF BODIES
 static void set_key_logical(int keycode, int unichar, int state)
 {
-    static uint8_t SFTODOMAP[ALLEGRO_KEY_MAX];
+    static uint8_t keycode_to_vkey_map[ALLEGRO_KEY_MAX];
 
     bool shift = hostshift;
     bool ctrl = hostctrl;
@@ -797,7 +795,7 @@ static void set_key_logical(int keycode, int unichar, int state)
             vkey = bbc_keys & 0xff;
             shift = bbc_keys & A2B_SHIFT;
             ctrl = bbc_keys & A2B_CTRL;
-            SFTODOMAP[keycode] = vkey;
+            keycode_to_vkey_map[keycode] = vkey;
         }
 
         // If a key other that 'vkey' is pressed already, release it. This
@@ -822,9 +820,9 @@ static void set_key_logical(int keycode, int unichar, int state)
         if (vkey == 0xaa) {
             // We translated the ASCII character into an emulated keypress when
             // the host key was pressed; we need to release the same key now.
-            vkey = SFTODOMAP[keycode];
+            vkey = keycode_to_vkey_map[keycode];
             assert(vkey != 0);
-            SFTODOMAP[keycode] = 0;
+            keycode_to_vkey_map[keycode] = 0;
         }
 
         if (key_is_down_logical(vkey)) {
