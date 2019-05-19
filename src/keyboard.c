@@ -778,13 +778,6 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     }
 }
 
-static void logical_key_clear() // SFTODO: NAME THIS key_clear_logical() INSTEAD?
-{
-    if (key_paste_vkey_down != 0) {
-        key_paste_add_vkey_up(key_paste_vkey_down);
-    }
-}
-
 // Called on (derived) host key down and host key up events in logical keyboard
 // mode; unichar is only meaningful on key down events (state==1).
 // SFTODO: CONVERT ALL MY NEW CODE TO STANDARD STYLE WITH NO BRACES AROUND SINGLE-LINE IF BODIES
@@ -812,22 +805,27 @@ static void set_key_logical(int keycode, int unichar, int state)
             keycode_to_vkey_map[keycode] = vkey;
         }
 
-        // If a key other that 'vkey' is pressed already, release it. This
+        // If a key other than 'vkey' is pressed already, release it. This
         // avoids having more keys pressed down than the OS can make sense of
         // and is harmless because the key we're about to press will/should
         // "take over" as the currently active key anyway. If 'vkey' is already
         // pressed we leave it alone, so we don't interfere with any ongoing OS
         // auto-repeat. (This shows up if you hold down 'A' and intermittently
-        // press and release SHIFT, for example.) If We also set the SHIFT and
-        // CTRL keys to the relevant state after releasing any existing key (so
-        // we don't accidentally cause the OS to interpret the existing key
-        // with the new SHIFT/CTRL state) and before pressing the new key.
+        // press and release SHIFT, for example.)
         if (key_is_down_logical(vkey)) {
             vkey = 0xaa;
         }
         else {
-            logical_key_clear();
+            if (key_paste_vkey_down != 0) {
+                key_paste_add_vkey_up(key_paste_vkey_down);
+            }
         }
+
+        // Now press 'vkey' (if it's not the no-op value 0xaa). We also set the
+        // SHIFT and CTRL keys to the relevant state; we do this after releasing
+        // any existing key above (so we don't accidentally cause the OS to
+        // interpret the existing key with the new SHIFT/CTRL state) and before
+        // pressing the new key.
         key_paste_add_combo(vkey, shift, ctrl); 
     }
     else { // host key released
