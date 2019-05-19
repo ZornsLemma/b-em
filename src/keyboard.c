@@ -721,10 +721,6 @@ static void key_paste_add_vkey_raw(uint8_t vkey)
         len = 0;
         pos = 0;
         kp_state = KP_NEXT;
-#if 0 // SFTODO DELETE
-        key_paste_shift = bbckey[0][0];
-        key_paste_ctrl = bbckey[1][0];
-#endif
     }
 
     unsigned char *new_str = al_realloc(key_paste_str, len+2);
@@ -746,7 +742,6 @@ static void key_paste_add_vkey_up(uint8_t vkey)
     if (key_paste_key_down2 != vkey) { abort(); } // SFTODO?!?!
     key_paste_add_vkey_raw(VKEY_UP);
     key_paste_add_vkey_raw(vkey);
-    // SFTODO DELETE key_paste_key_down = 0;
     if (key_paste_key_down2 == vkey) {
         key_paste_key_down2 = 0;
     }
@@ -759,7 +754,6 @@ static void key_paste_add_vkey_down(uint8_t vkey)
     }
     key_paste_add_vkey_raw(VKEY_DOWN);
     key_paste_add_vkey_raw(vkey);
-    // SFTODO DELETE key_paste_key_down = vkey;
     if (key_paste_key_down2 != 0) { abort(); } // SFTODO!?
     key_paste_key_down2 = vkey;
 }
@@ -899,72 +893,57 @@ static void logical_key_clear() // SFTODO: NAME THIS key_clear_logical() INSTEAD
 
 // Called on (derived) host key down and host key up events in logical keyboard
 // mode; unichar is only meaningful on key down events (state==1).
+// SFTODO: CONVERT ALL MY NEW CODE TO STANDARD STYLE WITH NO BRACES AROUND SINGLE-LINE IF BODIES
 static void set_key_logical(int keycode, int unichar, int state)
 {
     static uint8_t SFTODOMAP[ALLEGRO_KEY_MAX];
-    // SFTODO: CODE MAY BENEFIT FROM REFACTORING ONCE FINAL STRUCTURE BECOMES CLEAR AND COMMONALITY BETWEEN DIFFERENT CASES (STATE/VKEY) BECOMES CLEAR
+
+    bool shift = hostshift;
+    bool ctrl = hostctrl;
+
+    uint8_t vkey = allegro2bbclogical[keycode];
+    if (vkey == 0xbb) // ignore the key
+        return;
+
     if (state) {
-        uint8_t vkey = allegro2bbclogical[keycode];
-        switch (vkey) {
-            // SFTODO: DEPENDING HOW FINAL CODE LOOKS, 0xaa CASE COULD MAYBE FIDDLE SOME VARS THEN FALL THROUGH INTO DEFAULT CASE - BUT DON'T WORRY ABOUT THAT FOR NOW
-            case 0xaa: // type the corresponding ASCII character
-                switch (unichar) {
-                    case 96:  // unicode backtick
-                        break;
-                    case 163: // unicode pound currency symbol
-                        unichar = 96;
-                    default: {
-                        // SFTODO: GET RID OF THE LOCAL VARS IF ALL WE DO IS USE THEM AS ARGS TO ADD_COMBO
-                        uint16_t bbc_keys = ascii2bbc[unichar];
-                        vkey = bbc_keys & 0xff;
-                        bool shift = bbc_keys & A2B_SHIFT;
-                        bool ctrl = bbc_keys & A2B_CTRL;
-                        if (key_is_down_logical(vkey)) {
-                            vkey = 0xaa;
-                        }
-                        else {
-                            logical_key_clear();
-                        }
-                        key_paste_add_combo(vkey, shift, ctrl);
-                        SFTODOMAP[keycode] = vkey;
-                        break;
-                    }
-                }
-                break;
-
-            case 0xbb: // ignore the key
-                break;
-
-            default: // type vkey SFTODO OR "PRESS" VKEY??? NOT SURE IF IMPORTANT DISTINCTION YET
-                if (key_is_down_logical(vkey)) {
-                    vkey = 0xaa;
-                }
-                else {
-                    logical_key_clear();
-                }
-                key_paste_add_combo(vkey, hostshift, hostctrl); 
-                break;
+        if (vkey == 0xaa) { // type the ASCII character corresponding to the key
+            if (unichar == 96) // unicode backtick
+                return;
+            if (unichar == 163) // unicode pound currency symbol
+                unichar = 96; // Acorn pound currency symbol
+            uint16_t bbc_keys = ascii2bbc[unichar];
+            vkey = bbc_keys & 0xff;
+            shift = bbc_keys & A2B_SHIFT;
+            ctrl = bbc_keys & A2B_CTRL;
+            SFTODOMAP[keycode] = vkey;
         }
+
+        // If a key other that 'vkey' is pressed already, release it. This
+        // avoids having more keys pressed down than the OS can make sense of
+        // and is harmless because the key we're about to press will/should
+        // "take over" as the currently active key anyway. If 'vkey' is already
+        // pressed we leave it alone, so we don't interfere with any ongoing OS
+        // auto-repeat. (This shows up if you hold down 'A' and intermittently
+        // press and release SHIFT, for example.) If We also set the SHIFT and
+        // CTRL keys to the relevant state after releasing any existing key (so
+        // we don't accidentally cause the OS to interpret the existing key
+        // with the new SHIFT/CTRL state) and before pressing the new key.
+        if (key_is_down_logical(vkey)) {
+            vkey = 0xaa;
+        }
+        else {
+            logical_key_clear();
+        }
+        key_paste_add_combo(vkey, shift, ctrl); 
     }
     else {
-        uint8_t vkey = allegro2bbclogical[keycode];
-        switch (vkey) {
-            case 0xaa: // type the corresponding ASCII character SFTODO NEED TO TWEAK WORDING AS THIS IS UP NOT DOWN
-                vkey = SFTODOMAP[keycode];
-                if (vkey == 0) { abort(); } // SFTODO!?
-                if (key_is_down_logical(vkey)) {
-                    key_paste_add_vkey_up(vkey);
-                }
-                break;
+        if (vkey == 0xaa) { // SFTODO COMMENT
+            vkey = SFTODOMAP[keycode];
+            if (vkey == 0) { abort(); } // SFTODO!?
+        }
 
-            case 0xbb: // ignore the key // SFTODO NEED TO TWEAK WORDING AS THIS IS UP NOT DOWN
-                break;
-            
-            default: // type SFTODO OR PRESS vkey SFTODO NEED TO TWEAK WORDING AS THIS IS UP NOT DOWN
-                if (key_is_down_logical(vkey)) {
-                    key_paste_add_vkey_up(vkey);
-                }
-                break;
+        if (key_is_down_logical(vkey)) {
+            key_paste_add_vkey_up(vkey);
         }
     }
 }
