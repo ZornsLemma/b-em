@@ -659,6 +659,7 @@ typedef enum {
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
+static uint8_t key_paste_key_down;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 static uint8_t key_paste_vkey;
@@ -701,11 +702,13 @@ int key_map(ALLEGRO_EVENT *event)
     return code;
 }
 
-static void key_paste_add_vkey(uint8_t vkey)
+static void key_paste_add_vkey_raw(uint8_t vkey)
 {
     size_t len;
     int pos;
 
+    // SFTODO FOLLOWING CHECKS ARE NOT VERY "RAW" BUT NEVER MIND FOR NOW, CAN
+    // MOVE THEM LATER WHEN/IF THIS WORKS...
     if ((vkey == VKEY_SHIFT_EVENT) || (vkey == (VKEY_SHIFT_EVENT|1))) {
         bool old_key_paste_shift = key_paste_shift;
         key_paste_shift = vkey & 1;
@@ -744,6 +747,26 @@ static void key_paste_add_vkey(uint8_t vkey)
         log_warn("keyboard: out of memory adding key to paste, key discarded");
 }
 
+static void key_paste_add_vkey_up(uint8_t vkey)
+{
+    if ((vkey == 0x00) || (vkey == 0x01)) {
+        abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
+    }
+    key_paste_add_vkey_raw(VKEY_UP);
+    key_paste_add_vkey_raw(vkey);
+    key_paste_key_down = 0;
+}
+
+static void key_paste_add_vkey_down(uint8_t vkey)
+{
+    if ((vkey == 0x00) || (vkey == 0x01)) {
+        abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
+    }
+    key_paste_add_vkey_raw(VKEY_DOWN);
+    key_paste_add_vkey_raw(vkey);
+    key_paste_key_down = vkey;
+}
+
 static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
 {
     log_debug("keyboard: key_paste_add_combo vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
@@ -753,11 +776,15 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
-    key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
-    key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
+    if ((vkey != 0xaa) && (key_paste_key_down != 0)) {
+        key_paste_add_vkey_up(key_paste_key_down);
+        key_paste_key_down = 0;
+    }
+
+    key_paste_add_vkey_raw(VKEY_SHIFT_EVENT | shift);
+    key_paste_add_vkey_raw(VKEY_CTRL_EVENT | ctrl);
     if (vkey != 0xaa) {
-        key_paste_add_vkey(VKEY_DOWN);
-        key_paste_add_vkey(vkey);
+        key_paste_add_vkey_down(vkey);
     }
     
 }
@@ -767,6 +794,7 @@ static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
 {
     log_debug("keyboard: key_paste_add_combo2 vkey=&%02x, shift=%d, ctrl=%d", vkey, shift, ctrl);
 
+#if 0 // SFTODO!?
     // SFTODO: THIS IS PRETTY INEFFICIENT CODE BUT LET'S NOT WORRY ABOUT THAT
     // FOR NOW
 
@@ -807,10 +835,10 @@ static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
     for (int vkey = 0; vkey < (sizeof(key_down)/sizeof(key_down[0])); vkey++) {
         if (key_down[vkey]) {
             log_debug("keyboard: key_paste_add_combo2 forcing vkey &%02x up", vkey);
-            key_paste_add_vkey(VKEY_UP);
-            key_paste_add_vkey(vkey);
+            key_paste_add_vkey_up(VKEY_UP);
         }
     }
+#endif
 
     // Now we can type the desired character.
     key_paste_add_combo(vkey, shift, ctrl);
@@ -823,7 +851,14 @@ static void key_paste_map_keycode(int keycode, uint8_t vkey)
     // SFTODO: THE "FAILURE" HANDLING HERE MAY NOT BE THE BEST, BUT FOR NOW THE
     // MAIN THING IS TO DETECT WHEN THEY OCCUR
     if ((vkey != 0) && (logical_key_down_map[keycode] != 0)) {
+        // SFTODO: WE PROB SHOULDN'T WARN ABOUT THIS - IT OCCURS IF FOR EXAMPLE
+        // YOU HOLD DOWN ";" AND THEN - WHILE STILL HOLDING ";" DOWN - START
+        // HOLDING DOWN SHIFT AS WELL - THAT GENERATES A KEY_CHAR EVENT FOR ":"
+        // BUT WE HAVE NEVER HAD A KEY UP EVENT FOR ";" (WHICH IS REASONABLE,
+        // REALLY)
         log_warn("keyboard: logical key down without a preceding up; ignoring");
+        key_paste_add_vkey_up(logical_key_down_map[keycode]);
+        logical_key_down_map[keycode] = vkey;
     }
     else if ((vkey == 0) && (logical_key_down_map[keycode] == 0)) {
         log_warn("keyboard: logical key up without preceding down; ignoring");
@@ -849,14 +884,14 @@ void key_char(ALLEGRO_EVENT *event)
                 default:
                     if (c <= 127) {
                         uint16_t bbckey = ascii2bbc[c];
+                        key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff); // SFTODO MUST BE BEFORE ADD_COMBO - AWKWARD BUT PUT UP WITH IT FOR NOW
                         key_paste_add_combo2(bbckey & 0xff, bbckey & A2B_SHIFT, bbckey & A2B_CTRL);
-                        key_paste_map_keycode(event->keyboard.keycode, bbckey & 0xff);
                     }
             }
         }
         else if (vkey != 0xbb) {
+            key_paste_map_keycode(event->keyboard.keycode, vkey); // SFTODO MUST BE BE BEFORE ADD_COMBO - AKWARD BUT PUT UP WITH IT FOR NOW
             key_paste_add_combo(vkey, hostshift, hostctrl);
-            key_paste_map_keycode(event->keyboard.keycode, vkey);
         }
     }
 }
@@ -892,7 +927,7 @@ static void set_key(int code, int state)
         for (int i = 0; i < (sizeof(str) / sizeof(str[0])); i++) {
             // SFTODO: IT *MIGHT* BE BETTER TO PUSH DIRECTLY INTO KEY_PASTE_STR
             // BUT LET'S GO WITH THIS FOR NOW
-            key_paste_add_vkey(str[i]);
+            key_paste_add_vkey_raw(str[i]);
         }
         return;
     }
@@ -919,8 +954,14 @@ static void set_key(int code, int state)
         }
     }
     else {
-        if (shiftctrl)
-            key_paste_add_combo(0xaa, hostshift, hostctrl);
+        if (shiftctrl) {
+            // If there's a key down triggering changes in SHIFT/CTRL status
+            // could interfere with how the OS interprets it, so we don't do
+            // anything - we will do this later SFTODO DO WE? WHERE?
+            if (true /* SFTODO I THINK WE DO NEED THIS BUT NOT REALLY SURE key_paste_key_down == 0 */) {
+                key_paste_add_combo(0xaa, hostshift, hostctrl);
+            }
+        }
         else {
             if (state == 0) {
                 uint8_t old = logical_key_down_map[code];
@@ -930,8 +971,7 @@ static void set_key(int code, int state)
                 // - NOT SURE, THAT MIGHT NOT HELP - BUT WE KIND OF DON'T WANT TO BE
                 // ADDING A NUL BYTE IF THE VALUE IN THE MAP IS (INCORRECTLY)
                 // ALREADY ZERO
-                    key_paste_add_vkey(VKEY_UP);
-                    key_paste_add_vkey(logical_key_down_map[code]);
+                    key_paste_add_vkey_up(logical_key_down_map[code]);
                 }
                 key_paste_map_keycode(code, 0);
             }
