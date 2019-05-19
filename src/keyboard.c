@@ -870,6 +870,7 @@ static void set_key(int code, int state)
     if ((state == 1) && (code == ALLEGRO_KEY_F11) && !key_paste_ptr) {
         //unsigned char str[] = {VKEY_DOWN, 0x22, VKEY_UP, 0x22};
         unsigned char str[] = {
+#if 0
             VKEY_DOWN, 0x22, // E
             VKEY_SHIFT_EVENT|1,
             VKEY_DOWN, 0x24, // 7, but we're shifted so apostrophe
@@ -878,6 +879,15 @@ static void set_key(int code, int state)
             VKEY_UP, 0x22,
             VKEY_UP, 0x24
 #endif
+#endif
+            VKEY_SHIFT_EVENT|1,
+            VKEY_DOWN, 0x25, // I
+            VKEY_DOWN, 0x55, // N
+            VKEY_DOWN, 0x53, // G
+            VKEY_UP, 0x25,
+            VKEY_UP, 0x55,
+            VKEY_UP, 0x53,
+            VKEY_SHIFT_EVENT
         };
         for (int i = 0; i < (sizeof(str) / sizeof(str[0])); i++) {
             // SFTODO: IT *MIGHT* BE BETTER TO PUSH DIRECTLY INTO KEY_PASTE_STR
