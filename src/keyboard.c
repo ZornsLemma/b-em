@@ -613,16 +613,6 @@ static uint16_t ascii2bbc[] =
     0x59            // 0x7f DEL
 };
 
-#if 0 // SFTODO
-// This array maps from Allegro keycodes to BBC keycodes *for keys which have
-// been sent to us via a KEY_CHAR event and which we haven't yet seen a KEY_UP
-// event for*. The idea here is to approximate KEY_UP and KEY_DOWN events for
-// logical keyboard mode so we can have auto-repeat working normally; the
-// emulated machine sees keys on its keyboard held down when the user holds down
-// a key on the host keyboard.
-uint8_t logical_key_down_map[ALLEGRO_KEY_MAX];
-#endif
-
 int keylookup[ALLEGRO_KEY_MAX];
 bool keyas = 0;
 bool keylogical = 0;
@@ -631,15 +621,11 @@ static int keycol, keyrow;
 static int bbckey[16][16];
 static int hostshift, hostctrl;
 
-typedef enum { // SFTODO TIDY
+typedef enum {
     KP_IDLE,
-    KP_STILLDOWN,
     KP_NEXT,
-    KP_CHAR,
+    KP_DOWN,
     KP_DELAY,
-    KP_DELAY2,
-    KP_DELAY3,
-    KP_DELAY4,
     KP_UP
 } kp_state_t;
 
@@ -661,11 +647,9 @@ typedef enum { // SFTODO TIDY
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
-// SFTODO DELETE static uint8_t key_paste_key_down;
 static uint8_t key_paste_key_down2; // SFTODO REMOVE 2 - JUST USING IT FOR NOW TO SEPARATE OLD AND NEW CODE
 static bool key_paste_shift;
 static bool key_paste_ctrl;
-static uint8_t key_paste_vkey; // SFTODO WE PROB DON'T NEED THIS ANY MORE
 
 static void key_update()
 {
@@ -1144,16 +1128,11 @@ void key_paste_poll(void)
     switch(kp_state) {
         case KP_IDLE:
             break;
-        case KP_STILLDOWN: // SFTODO: GET RID OF THIS STATE?
-            if (*key_paste_ptr == 0) {
-                break;
-            }
-            // fall through
+
         case KP_NEXT:
             if ((vkey = *key_paste_ptr++)) {
                 int col = 1;
                 log_debug("keyboard: key_paste_poll next vkey=&%02x", vkey);
-                key_paste_vkey = vkey;
                 switch (vkey) {
                     case VKEY_SHIFT_EVENT:
                     case VKEY_SHIFT_EVENT|1:
@@ -1166,7 +1145,7 @@ void key_paste_poll(void)
                         break;
 
                     case VKEY_DOWN:
-                        kp_state = KP_CHAR;
+                        kp_state = KP_DOWN;
                         break;
 
                     case VKEY_UP:
@@ -1178,12 +1157,6 @@ void key_paste_poll(void)
                 }
             }
             else {
-#if 0 // SFTODO DELETE?
-                if (key_paste_vkey < VKEY_SHIFT_EVENT) {
-                    bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
-                    key_update();
-                }
-#endif
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
@@ -1197,20 +1170,23 @@ void key_paste_poll(void)
                 }
             }
             break;
-        case KP_CHAR: // SFTODO RENAME TO KP_DOWN?
-            key_paste_vkey = *key_paste_ptr++;
-            log_debug("keyboard: key_paste_poll char vkey=&%02x", key_paste_vkey);
-            bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 1;
+
+        case KP_DOWN:
+            vkey = *key_paste_ptr++;
+            log_debug("keyboard: key_paste_poll char vkey=&%02x", vkey);
+            bbckey[vkey & 15][vkey >> 4] = 1;
             key_update();
             kp_state = KP_DELAY;
             break;
+
         case KP_DELAY:
             kp_state = KP_NEXT;
             break;
+
         case KP_UP:
-            key_paste_vkey = *key_paste_ptr++;
-            log_debug("keyboard: key_paste_poll up vkey=&%02x", key_paste_vkey);
-            bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
+            vkey = *key_paste_ptr++;
+            log_debug("keyboard: key_paste_poll up vkey=&%02x", vkey);
+            bbckey[vkey & 15][vkey >> 4] = 0;
             key_update();
             kp_state = KP_NEXT;
     }
