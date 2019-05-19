@@ -978,7 +978,7 @@ static void set_key(int code, int state)
             // If there's a key down triggering changes in SHIFT/CTRL status
             // could interfere with how the OS interprets it, so we don't do
             // anything - we will do this later SFTODO DO WE? WHERE?
-            if (true /* SFTODO I THINK WE DO NEED THIS BUT NOT REALLY SURE key_paste_key_down == 0 */) {
+            if (key_paste_key_down == 0) {
                 key_paste_add_combo(0xaa, hostshift, hostctrl);
             }
         }
