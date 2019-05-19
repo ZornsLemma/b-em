@@ -647,7 +647,7 @@ typedef enum {
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
-static uint8_t key_paste_key_down2; // SFTODO REMOVE 2 - JUST USING IT FOR NOW TO SEPARATE OLD AND NEW CODE
+static uint8_t key_paste_vkey_down; // SFTODO REMOVE 2 - JUST USING IT FOR NOW TO SEPARATE OLD AND NEW CODE
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 
@@ -691,27 +691,12 @@ int key_map(ALLEGRO_EVENT *event)
 
 // SFTODO: WE SHOULD MAYBE HAVE A keyboard_reset() FUNCTION AND CALL IT WHEN TOGGLING BETWEEN LOGICAL AND PHYSICAL KEYBOARD MODE - BUT LET'S NOT WORRY ABOUT THAT FOR NOW
 
-static void key_paste_add_vkey_raw(uint8_t vkey)
+static void key_paste_add_vkey(uint8_t vkey)
 {
     size_t len;
     int pos;
 
-    // SFTODO FOLLOWING CHECKS ARE NOT VERY "RAW" BUT NEVER MIND FOR NOW, CAN
-    // MOVE THEM LATER WHEN/IF THIS WORKS...
-    if ((vkey == VKEY_SHIFT_EVENT) || (vkey == (VKEY_SHIFT_EVENT|1))) {
-        bool old_key_paste_shift = key_paste_shift;
-        key_paste_shift = vkey & 1;
-        if (old_key_paste_shift == key_paste_shift)
-            return;
-    }
-    else if ((vkey == VKEY_CTRL_EVENT) || (vkey == (VKEY_CTRL_EVENT|1))) {
-        bool old_key_paste_ctrl = key_paste_ctrl;
-        key_paste_ctrl = vkey & 1;
-        if (old_key_paste_ctrl == key_paste_ctrl)
-            return;
-    }
-
-    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey); // SFTODO NAME DOESN'T MATCH ACTUAL FN NAME AT THE MOMENT
+    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
 
     if (key_paste_str) {
         len = strlen((char *)key_paste_str);
@@ -739,11 +724,11 @@ static void key_paste_add_vkey_up(uint8_t vkey)
     if ((vkey == 0x00) || (vkey == 0x01)) {
         abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
     }
-    if (key_paste_key_down2 != vkey) { abort(); } // SFTODO?!?!
-    key_paste_add_vkey_raw(VKEY_UP);
-    key_paste_add_vkey_raw(vkey);
-    if (key_paste_key_down2 == vkey) {
-        key_paste_key_down2 = 0;
+    if (key_paste_vkey_down != vkey) { abort(); } // SFTODO?!?!
+    key_paste_add_vkey(VKEY_UP);
+    key_paste_add_vkey(vkey);
+    if (key_paste_vkey_down == vkey) {
+        key_paste_vkey_down = 0;
     }
 }
 
@@ -752,15 +737,15 @@ static void key_paste_add_vkey_down(uint8_t vkey)
     if ((vkey == 0x00) || (vkey == 0x01)) {
         abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
     }
-    key_paste_add_vkey_raw(VKEY_DOWN);
-    key_paste_add_vkey_raw(vkey);
-    if (key_paste_key_down2 != 0) { abort(); } // SFTODO!?
-    key_paste_key_down2 = vkey;
+    key_paste_add_vkey(VKEY_DOWN);
+    key_paste_add_vkey(vkey);
+    if (key_paste_vkey_down != 0) { abort(); } // SFTODO!?
+    key_paste_vkey_down = vkey;
 }
 
 static bool key_is_down_logical(uint8_t vkey)
 {
-    return (key_paste_key_down2 != 0) && (key_paste_key_down2 == vkey);
+    return (key_paste_vkey_down != 0) && (key_paste_vkey_down == vkey);
 }
 
 static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
@@ -772,8 +757,16 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     shift = !!shift;
     ctrl = !!ctrl;
 
-    key_paste_add_vkey_raw(VKEY_SHIFT_EVENT | shift);
-    key_paste_add_vkey_raw(VKEY_CTRL_EVENT | ctrl);
+    if (shift != key_paste_shift) {
+        key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
+        key_paste_shift = shift;
+    }
+
+    if (ctrl != key_paste_ctrl) {
+        key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
+        key_paste_ctrl = ctrl;
+    }
+
     if (vkey != 0xaa) {
         key_paste_add_vkey_down(vkey);
     }
@@ -781,8 +774,8 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
 
 static void logical_key_clear() // SFTODO: NAME THIS key_clear_logical() INSTEAD?
 {
-    if (key_paste_key_down2 != 0) {
-        key_paste_add_vkey_up(key_paste_key_down2);
+    if (key_paste_vkey_down != 0) {
+        key_paste_add_vkey_up(key_paste_vkey_down);
     }
 }
 
@@ -869,17 +862,17 @@ void key_char(ALLEGRO_EVENT *event)
     }
 }
 
-// Set the emulated machine's SHIFT/CTRL state to match the host machine's
-// state, provided the host machine has no keys held down (if it does, KEY_CHAR
-// events will cause any necessary SHIFT/CTRL state to be passed through to the
-// emulated machine at the appropriate point) and there are no keyboard events
-// waiting to be passed through to the emulated machine (if there are, the
-// current state of the host's keyboard is irrelevant; this function will be
-// called again to pick up the then-current state when the pending keyboard
-// events have all been processed).
+// Set the emulated machine's SHIFT/CTRL state to match the host's state,
+// provided the host has no keys held down (if it does, KEY_CHAR events will
+// cause any necessary SHIFT/CTRL state to be passed through to the emulated
+// machine at the appropriate point) and there are no keyboard events waiting
+// to be passed through to the emulated machine (if there are, the current
+// state of the host's keyboard is irrelevant; this function will be called
+// again to pick up the then-current state when the pending keyboard events
+// have all been processed).
 static void set_logical_shift_ctrl_if_idle()
 {
-    if ((kp_state == KP_IDLE) && (key_paste_key_down2 == 0)) {
+    if ((kp_state == KP_IDLE) && (key_paste_vkey_down == 0)) {
         key_paste_add_combo(0xaa, hostshift, hostctrl);
     }
 }
