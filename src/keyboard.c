@@ -751,6 +751,7 @@ static void key_paste_add_vkey_down(uint8_t vkey)
 
 static bool key_is_down_logical(uint8_t vkey)
 {
+    assert(vkey != 0);
     return (key_paste_vkey_down != 0) && (key_paste_vkey_down == vkey);
 }
 
@@ -773,9 +774,8 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
         key_paste_ctrl = ctrl;
     }
 
-    if (vkey != 0xaa) {
+    if (vkey != 0xaa)
         key_paste_add_vkey_down(vkey);
-    }
 }
 
 // Called on (derived) host key down and host key up events in logical keyboard
@@ -812,14 +812,10 @@ static void set_key_logical(int keycode, int unichar, int state)
         // pressed we leave it alone, so we don't interfere with any ongoing OS
         // auto-repeat. (This shows up if you hold down 'A' and intermittently
         // press and release SHIFT, for example.)
-        if (key_is_down_logical(vkey)) {
+        if (key_is_down_logical(vkey))
             vkey = 0xaa;
-        }
-        else {
-            if (key_paste_vkey_down != 0) {
-                key_paste_add_vkey_up(key_paste_vkey_down);
-            }
-        }
+        else if (key_paste_vkey_down != 0)
+            key_paste_add_vkey_up(key_paste_vkey_down);
 
         // Now press 'vkey' (if it's not the no-op value 0xaa). We also set the
         // SHIFT and CTRL keys to the relevant state; we do this after releasing
@@ -837,9 +833,8 @@ static void set_key_logical(int keycode, int unichar, int state)
             keycode_to_vkey_map[keycode] = 0;
         }
 
-        if (key_is_down_logical(vkey)) {
+        if (key_is_down_logical(vkey))
             key_paste_add_vkey_up(vkey);
-        }
 
         // We don't need to do anything to the emulated machine's SHIFT/CTRL
         // state now; no emulated keys (except maybe SHIFT/CTRL themselves) are
@@ -885,9 +880,8 @@ void key_char(ALLEGRO_EVENT *event)
 // have all been processed).
 static void set_logical_shift_ctrl_if_idle()
 {
-    if ((kp_state == KP_IDLE) && (key_paste_vkey_down == 0)) {
+    if ((kp_state == KP_IDLE) && (key_paste_vkey_down == 0))
         key_paste_add_combo(0xaa, hostshift, hostctrl);
-    }
 }
 
 static void set_key(int code, int state)
@@ -916,14 +910,10 @@ static void set_key(int code, int state)
         }
     }
     else {
-        if (shiftctrl) {
+        if (shiftctrl)
             set_logical_shift_ctrl_if_idle();
-        }
-        else {
-            if (state == 0) {
-                set_key_logical(code, 0, state);
-            }
-        }
+        else if (state == 0)
+            set_key_logical(code, 0, state);
     }
 }
 
@@ -940,7 +930,7 @@ void key_up(int code)
 void key_paste_poll(void)
 {
     uint8_t vkey;
-    //log_debug("key_paste_poll: kp_state=%d", kp_state);
+    //log_debug("keyboard: key_paste_poll kp_state=%d", kp_state);
 
     switch(kp_state) {
         case KP_IDLE:
@@ -988,7 +978,7 @@ void key_paste_poll(void)
 
         case KP_DOWN:
             vkey = *key_paste_ptr++;
-            log_debug("keyboard: key_paste_poll char vkey=&%02x", vkey);
+            log_debug("keyboard: key_paste_poll down vkey=&%02x", vkey);
             bbckey[vkey & 15][vkey >> 4] = 1;
             key_update();
             kp_state = KP_DELAY;
@@ -1029,6 +1019,7 @@ bool key_any_down(void)
     return false;
 }
 
+// SFTODO: S-BREAK DOESN'T SELECT VDFS IN LOGICAL KEYBOARD MODE
 bool key_code_down(int code)
 {
     if (code < ALLEGRO_KEY_MAX) {
