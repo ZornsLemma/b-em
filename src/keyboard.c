@@ -649,6 +649,22 @@ static uint8_t key_paste_vkey_down;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 
+void key_reset()
+{
+    int c, r;
+    for (c = 0; c < 16; c++)
+        for (r = 0; r < 16; r++)
+            bbckey[c][r] = 0;
+    sysvia_set_ca2(0);
+
+    kp_state = KP_IDLE;
+    key_paste_str = 0;
+    key_paste_ptr = 0;
+    key_paste_vkey_down = 0;
+    key_paste_shift = false;
+    key_paste_ctrl = false;
+}
+
 static void key_update()
 {
     int c,d;
@@ -686,8 +702,6 @@ int key_map(ALLEGRO_EVENT *event)
     log_debug("keyboard: mapping %d to %d", event->keyboard.keycode, code);
     return code;
 }
-
-// SFTODO: WE SHOULD MAYBE HAVE A keyboard_reset() FUNCTION AND CALL IT WHEN TOGGLING BETWEEN LOGICAL AND PHYSICAL KEYBOARD MODE - BUT LET'S NOT WORRY ABOUT THAT FOR NOW
 
 static void key_paste_add_vkey(uint8_t vkey)
 {
