@@ -665,7 +665,7 @@ static unsigned char *key_paste_ptr;
 static uint8_t key_paste_key_down2; // SFTODO REMOVE 2 - JUST USING IT FOR NOW TO SEPARATE OLD AND NEW CODE
 static bool key_paste_shift;
 static bool key_paste_ctrl;
-static uint8_t key_paste_vkey;
+static uint8_t key_paste_vkey; // SFTODO WE PROB DON'T NEED THIS ANY MORE
 
 static void key_update()
 {
@@ -705,6 +705,8 @@ int key_map(ALLEGRO_EVENT *event)
     return code;
 }
 
+// SFTODO: WE SHOULD MAYBE HAVE A keyboard_reset() FUNCTION AND CALL IT WHEN TOGGLING BETWEEN LOGICAL AND PHYSICAL KEYBOARD MODE - BUT LET'S NOT WORRY ABOUT THAT FOR NOW
+
 static void key_paste_add_vkey_raw(uint8_t vkey)
 {
     size_t len;
@@ -725,7 +727,7 @@ static void key_paste_add_vkey_raw(uint8_t vkey)
             return;
     }
 
-    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
+    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey); // SFTODO NAME DOESN'T MATCH ACTUAL FN NAME AT THE MOMENT
 
     if (key_paste_str) {
         len = strlen((char *)key_paste_str);
@@ -735,8 +737,10 @@ static void key_paste_add_vkey_raw(uint8_t vkey)
         len = 0;
         pos = 0;
         kp_state = KP_NEXT;
+#if 0 // SFTODO DELETE
         key_paste_shift = bbckey[0][0];
         key_paste_ctrl = bbckey[1][0];
+#endif
     }
 
     unsigned char *new_str = al_realloc(key_paste_str, len+2);
@@ -1088,7 +1092,8 @@ static void set_key(int code, int state)
             // reached, so there's no need to shove unnecessary SHIFT/CTRL
             // up/down events into the key_paste buffer.
             // SFTODO: MAKE SURE IT *DOES* DO THAT WHEN WE TRANSITION INTO KP_IDLE
-            if (kp_state == KP_IDLE) {
+            // SFTODO UPDATE COMMENT TO REFLECT NEW CHANGE
+            if ((kp_state == KP_IDLE) && (key_paste_key_down2 == 0)) {
                 key_paste_add_combo(0xaa, hostshift, hostctrl);
             }
             // SFTODO SOMETHNG!
@@ -1139,7 +1144,7 @@ void key_paste_poll(void)
     switch(kp_state) {
         case KP_IDLE:
             break;
-        case KP_STILLDOWN:
+        case KP_STILLDOWN: // SFTODO: GET RID OF THIS STATE?
             if (*key_paste_ptr == 0) {
                 break;
             }
@@ -1157,7 +1162,7 @@ void key_paste_poll(void)
                     case VKEY_CTRL_EVENT|1:
                         bbckey[col][0] = vkey & 1;
                         key_update();
-                        kp_state = KP_DELAY2;
+                        kp_state = KP_NEXT;
                         break;
 
                     case VKEY_DOWN:
@@ -1173,24 +1178,26 @@ void key_paste_poll(void)
                 }
             }
             else {
+#if 0 // SFTODO DELETE?
                 if (key_paste_vkey < VKEY_SHIFT_EVENT) {
                     bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
                     key_update();
                 }
+#endif
                 al_free(key_paste_str);
                 key_paste_str = key_paste_ptr = NULL;
                 kp_state = KP_IDLE;
 
-#if 1 // SFTODO!? TEMP REMOVED FOR NOW AT LEAST WHILE PLAYING WITH F11 HACK
                 // Now we've finished, make the emulated machine's SHIFT/CTRL
                 // state agree with the host's state. This doesn't cause an
                 // infinite loop because this is a no-op if the state already
-                // matches.
-                key_paste_add_combo(0xaa, hostshift, hostctrl);
-#endif
+                // matches. SFTODO: UPDATE FOR NEW CONDITION
+                if (key_paste_key_down2 == 0) {
+                    key_paste_add_combo(0xaa, hostshift, hostctrl);
+                }
             }
             break;
-        case KP_CHAR:
+        case KP_CHAR: // SFTODO RENAME TO KP_DOWN?
             key_paste_vkey = *key_paste_ptr++;
             log_debug("keyboard: key_paste_poll char vkey=&%02x", key_paste_vkey);
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 1;
@@ -1198,15 +1205,6 @@ void key_paste_poll(void)
             kp_state = KP_DELAY;
             break;
         case KP_DELAY:
-            kp_state = KP_DELAY4;
-            break;
-        case KP_DELAY4:
-            kp_state = KP_STILLDOWN;
-            break;
-        case KP_DELAY2:
-            kp_state = KP_DELAY3;
-            break;
-        case KP_DELAY3:
             kp_state = KP_NEXT;
             break;
         case KP_UP:
@@ -1214,7 +1212,7 @@ void key_paste_poll(void)
             log_debug("keyboard: key_paste_poll up vkey=&%02x", key_paste_vkey);
             bbckey[key_paste_vkey & 0x0f][(key_paste_vkey & 0xf0) >> 4] = 0;
             key_update();
-            kp_state = KP_DELAY2;
+            kp_state = KP_NEXT;
     }
 }
 
