@@ -647,7 +647,7 @@ typedef enum {
 static kp_state_t kp_state = KP_IDLE;
 static unsigned char *key_paste_str;
 static unsigned char *key_paste_ptr;
-static uint8_t key_paste_vkey_down; // SFTODO REMOVE 2 - JUST USING IT FOR NOW TO SEPARATE OLD AND NEW CODE
+static uint8_t key_paste_vkey_down;
 static bool key_paste_shift;
 static bool key_paste_ctrl;
 
@@ -721,25 +721,19 @@ static void key_paste_add_vkey(uint8_t vkey)
 
 static void key_paste_add_vkey_up(uint8_t vkey)
 {
-    if ((vkey == 0x00) || (vkey == 0x01)) {
-        abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
-    }
-    if (key_paste_vkey_down != vkey) { abort(); } // SFTODO?!?!
+    assert((vkey != 0x00) && (vkey != 0x01)); // not SHIFT or CTRL
+    assert(vkey == key_paste_vkey_down);
     key_paste_add_vkey(VKEY_UP);
     key_paste_add_vkey(vkey);
-    if (key_paste_vkey_down == vkey) {
-        key_paste_vkey_down = 0;
-    }
+    key_paste_vkey_down = 0;
 }
 
 static void key_paste_add_vkey_down(uint8_t vkey)
 {
-    if ((vkey == 0x00) || (vkey == 0x01)) {
-        abort(); // SFTODO! BUT THIS SHOULDN'T HAPPEN AND WE WANT TO MAKE IT OBVIOUS IF IT DOES
-    }
+    assert((vkey != 0x00) && (vkey != 0x01)); // not SHIFT or CTRL
+    assert(key_paste_vkey_down == 0);
     key_paste_add_vkey(VKEY_DOWN);
     key_paste_add_vkey(vkey);
-    if (key_paste_vkey_down != 0) { abort(); } // SFTODO!?
     key_paste_vkey_down = vkey;
 }
 
@@ -793,7 +787,7 @@ static void set_key_logical(int keycode, int unichar, int state)
     if (vkey == 0xbb) // ignore the key
         return;
 
-    if (state) {
+    if (state) { // host key pressed
         if (vkey == 0xaa) { // type the ASCII character corresponding to the key
             if (unichar == 96) // unicode backtick
                 return;
@@ -824,15 +818,24 @@ static void set_key_logical(int keycode, int unichar, int state)
         }
         key_paste_add_combo(vkey, shift, ctrl); 
     }
-    else {
-        if (vkey == 0xaa) { // SFTODO COMMENT
+    else { // host key released
+        if (vkey == 0xaa) {
+            // We translated the ASCII character into an emulated keypress when
+            // the host key was pressed; we need to release the same key now.
             vkey = SFTODOMAP[keycode];
-            if (vkey == 0) { abort(); } // SFTODO!?
+            assert(vkey != 0);
+            SFTODOMAP[keycode] = 0;
         }
 
         if (key_is_down_logical(vkey)) {
             key_paste_add_vkey_up(vkey);
         }
+
+        // We don't need to do anything to the emulated machine's SHIFT/CTRL
+        // state now; no emulated keys (except maybe SHIFT/CTRL themselves) are
+        // down so they have no effect at the moment.
+        // set_logical_shift_ctrl_if_idle() will be called to update them
+        // later.
     }
 }
 
