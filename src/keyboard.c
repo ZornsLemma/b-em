@@ -706,8 +706,6 @@ static void key_paste_add_vkey(uint8_t vkey)
     size_t len;
     int pos;
 
-    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
-
     if ((vkey == VKEY_SHIFT_EVENT) || (vkey == (VKEY_SHIFT_EVENT|1))) {
         bool old_key_paste_shift = key_paste_shift;
         key_paste_shift = vkey & 1;
@@ -720,6 +718,8 @@ static void key_paste_add_vkey(uint8_t vkey)
         if (old_key_paste_ctrl == key_paste_ctrl)
             return;
     }
+
+    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
 
     if (key_paste_str) {
         len = strlen((char *)key_paste_str);
@@ -776,9 +776,10 @@ static void key_paste_add_combo2(uint8_t vkey, bool shift, bool ctrl)
 	for (c = 0; c < 16; c++) {
 		for (r = 0; r < 16; r++) {
             if ((c <= 1) && (r == 0)) {
-                break; // not interested in SHIFT or CTRL
+                continue; // not interested in SHIFT or CTRL
             }
 			if (bbckey[c][r]) {
+                log_debug("SFTODO c%d r%d", c, r);
                 key_down[(r << 4) | c] = 1;
             }
         }
