@@ -657,6 +657,7 @@ void key_reset()
     sysvia_set_ca2(0);
 
     kp_state = KP_IDLE;
+    free(key_paste_str);
     key_paste_str = 0;
     key_paste_ptr = 0;
     key_paste_vkey_down = 0;
