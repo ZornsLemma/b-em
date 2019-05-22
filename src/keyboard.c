@@ -799,6 +799,12 @@ static void set_key_logical(int keycode, int unichar, int state)
                 return;
             if (unichar == 163) // unicode pound currency symbol
                 unichar = 96; // Acorn pound currency symbol
+            // Ignore keys we can't map and make a note to ignore them when
+            // they're released as well.
+            if (unichar >= (sizeof(ascii2bbc) / sizeof(ascii2bbc[0]))) {
+                keycode_to_vkey_map[keycode] = 0;
+                return;
+            }
             uint16_t bbc_keys = ascii2bbc[unichar];
             vkey = bbc_keys & 0xff;
             shift = bbc_keys & A2B_SHIFT;
@@ -827,10 +833,13 @@ static void set_key_logical(int keycode, int unichar, int state)
     }
     else { // host key released
         if (vkey == 0xaa) {
-            // We translated the ASCII character into an emulated keypress when
-            // the host key was pressed; we need to release the same key now.
+            // If we translated the ASCII character into an emulated keypress
+            // when the host key was pressed, we need to release the same key
+            // now. If we ignored the key when it was pressed, we need to ignore
+            // it now.
             vkey = keycode_to_vkey_map[keycode];
-            assert(vkey != 0);
+            if (vkey == 0)
+                return;
             keycode_to_vkey_map[keycode] = 0;
         }
 
