@@ -643,6 +643,7 @@ typedef enum {
 
 static kp_state_t kp_state = KP_IDLE;
 #define KEY_PASTE_STR_CAPACITY (1024)
+#define KEY_PASTE_THRESHOLD (64)
 static unsigned char key_paste_str[KEY_PASTE_STR_CAPACITY];
 static size_t key_paste_str_size;
 static unsigned char *key_paste_ptr;
@@ -722,6 +723,11 @@ static void key_paste_add_vkey(uint8_t vkey1, uint8_t vkey2)
             log_warn("keyboard: out of memory adding key to paste, key discarded");
             return;
         }
+    }
+
+    if ((vkey1 == VKEY_DOWN) && (new_size >= KEY_PASTE_THRESHOLD)) {
+        log_warn("keyboard: discarding key down as buffer over threshold"); // SFTODO: SHOULD REALLY BE DEBUG BUT THIS IS HANDY FOR NOW
+        return;
     }
 
     if (kp_state == KP_IDLE) {
