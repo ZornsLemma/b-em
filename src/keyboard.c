@@ -711,7 +711,7 @@ static void key_paste_add_vkey(uint8_t vkey1, uint8_t vkey2)
 
     size_t new_size = key_paste_str_size + 1 + ((vkey2 != 0xaa) ? 1 : 0);
     if (new_size >= KEY_PASTE_STR_CAPACITY) {
-        if ((key_paste_ptr - key_paste_str) > 0) {
+        if (key_paste_ptr > key_paste_str) {
             log_debug("keyboard: key_paste_add_vkey moving down");
             size_t vkeys_left = key_paste_str_size - (key_paste_ptr - key_paste_str);
             memcpy(key_paste_str, key_paste_ptr, vkeys_left);
@@ -720,13 +720,23 @@ static void key_paste_add_vkey(uint8_t vkey1, uint8_t vkey2)
         }
         new_size = key_paste_str_size + 1 + ((vkey2 != 0xaa) ? 1 : 0);
         if (new_size >= KEY_PASTE_STR_CAPACITY) {
+            // We really don't want this case to happen; it could cause annoying
+            // side effects like keys being stuck down because the VKEY_DOWN
+            // event made it into the buffer but the corresponding VKEY_UP event
+            // didn't. This is why KEY_PASTE_STR_CAPACITY is significantly
+            // larger than KEY_PASTE_THRESHOLD.
             log_warn("keyboard: out of memory adding key to paste, key discarded");
             return;
         }
     }
 
+    // If the buffer is getting too full, stop inserting key down events. We
+    // allow key up events in to avoid keys being stuck down unintentionally.
+    // This makes the undesirable out of memory case above unlikely, and has the
+    // more practical benefit that the user can't type ahead so much that
+    // there's a significant amount of activity after they actually stop typing.
     if ((vkey1 == VKEY_DOWN) && (new_size >= KEY_PASTE_THRESHOLD)) {
-        log_warn("keyboard: discarding key down as buffer over threshold"); // SFTODO: SHOULD REALLY BE DEBUG BUT THIS IS HANDY FOR NOW
+        log_debug("keyboard: discarding key down as buffer over threshold");
         return;
     }
 
