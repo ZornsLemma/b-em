@@ -642,7 +642,10 @@ typedef enum {
 #define VKEY_CTRL_EVENT  (0xf0)
 
 static kp_state_t kp_state = KP_IDLE;
-static unsigned char *key_paste_str;
+#define KEY_PASTE_STR_CAPACITY (1024)
+#define KEY_PASTE_THRESHOLD (64)
+static unsigned char key_paste_str[KEY_PASTE_STR_CAPACITY];
+static size_t key_paste_str_size;
 static unsigned char *key_paste_ptr;
 static uint8_t key_paste_vkey_down;
 static bool key_paste_shift;
@@ -657,8 +660,7 @@ void key_reset()
     sysvia_set_ca2(0);
 
     kp_state = KP_IDLE;
-    free(key_paste_str);
-    key_paste_str = 0;
+    key_paste_str_size = 0;
     key_paste_ptr = 0;
     key_paste_vkey_down = 0;
     key_paste_shift = false;
@@ -703,40 +705,56 @@ int key_map(ALLEGRO_EVENT *event)
     return code;
 }
 
-static void key_paste_add_vkey(uint8_t vkey)
+static void key_paste_add_vkey(uint8_t vkey1, uint8_t vkey2)
 {
-    size_t len;
-    int pos;
+    log_debug("keyboard: key_paste_add_vkey, vkey1=&%02x, vkey2=&%02x", vkey1, vkey2);
 
-    log_debug("keyboard: key_paste_add_vkey, vkey=&%02x", vkey);
-
-    if (key_paste_str) {
-        len = strlen((char *)key_paste_str);
-        pos = key_paste_ptr - key_paste_str;
+    size_t new_size = key_paste_str_size + 1 + ((vkey2 != 0xaa) ? 1 : 0);
+    if (new_size >= KEY_PASTE_STR_CAPACITY) {
+        if (key_paste_ptr > key_paste_str) {
+            log_debug("keyboard: key_paste_add_vkey moving down");
+            size_t vkeys_left = key_paste_str_size - (key_paste_ptr - key_paste_str);
+            memcpy(key_paste_str, key_paste_ptr, vkeys_left);
+            key_paste_ptr = key_paste_str;
+            key_paste_str_size = vkeys_left;
+        }
+        new_size = key_paste_str_size + 1 + ((vkey2 != 0xaa) ? 1 : 0);
+        if (new_size >= KEY_PASTE_STR_CAPACITY) {
+            // We really don't want this case to happen; it could cause annoying
+            // side effects like keys being stuck down because the VKEY_DOWN
+            // event made it into the buffer but the corresponding VKEY_UP event
+            // didn't. This is why KEY_PASTE_STR_CAPACITY is significantly
+            // larger than KEY_PASTE_THRESHOLD.
+            log_warn("keyboard: out of memory adding key to paste, key discarded");
+            return;
+        }
     }
-    else {
-        len = 0;
-        pos = 0;
+
+    // If the buffer is getting too full, stop inserting key down events. We
+    // allow key up events in to avoid keys being stuck down unintentionally.
+    // This makes the undesirable out of memory case above unlikely, and has the
+    // more practical benefit that the user can't type ahead so much that
+    // there's a significant amount of activity after they actually stop typing.
+    if ((vkey1 == VKEY_DOWN) && (new_size >= KEY_PASTE_THRESHOLD)) {
+        log_debug("keyboard: discarding key down as buffer over threshold");
+        return;
+    }
+
+    if (kp_state == KP_IDLE) {
+        key_paste_ptr = key_paste_str;
         kp_state = KP_NEXT;
     }
 
-    unsigned char *new_str = al_realloc(key_paste_str, len+2);
-    if (new_str) {
-        key_paste_str = new_str;
-        key_paste_ptr = key_paste_str + pos;
-        new_str[len] = vkey;
-        new_str[len+1] = 0;
-    }
-    else
-        log_warn("keyboard: out of memory adding key to paste, key discarded");
+    key_paste_str[key_paste_str_size++] = vkey1;
+    if (vkey2 != 0xaa)
+        key_paste_str[key_paste_str_size++] = vkey2;
 }
 
 static void key_paste_add_vkey_up(uint8_t vkey)
 {
     assert((vkey != 0x00) && (vkey != 0x01)); // not SHIFT or CTRL
     assert(vkey == key_paste_vkey_down);
-    key_paste_add_vkey(VKEY_UP);
-    key_paste_add_vkey(vkey);
+    key_paste_add_vkey(VKEY_UP, vkey);
     key_paste_vkey_down = 0;
 }
 
@@ -744,8 +762,7 @@ static void key_paste_add_vkey_down(uint8_t vkey)
 {
     assert((vkey != 0x00) && (vkey != 0x01)); // not SHIFT or CTRL
     assert(key_paste_vkey_down == 0);
-    key_paste_add_vkey(VKEY_DOWN);
-    key_paste_add_vkey(vkey);
+    key_paste_add_vkey(VKEY_DOWN, vkey);
     key_paste_vkey_down = vkey;
 }
 
@@ -765,12 +782,12 @@ static void key_paste_add_combo(uint8_t vkey, bool shift, bool ctrl)
     ctrl = !!ctrl;
 
     if (shift != key_paste_shift) {
-        key_paste_add_vkey(VKEY_SHIFT_EVENT | shift);
+        key_paste_add_vkey(VKEY_SHIFT_EVENT | shift, 0xaa);
         key_paste_shift = shift;
     }
 
     if (ctrl != key_paste_ctrl) {
-        key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl);
+        key_paste_add_vkey(VKEY_CTRL_EVENT | ctrl, 0xaa);
         key_paste_ctrl = ctrl;
     }
 
@@ -948,7 +965,8 @@ void key_paste_poll(void)
             break;
 
         case KP_NEXT:
-            if ((vkey = *key_paste_ptr++)) {
+            if ((key_paste_ptr - key_paste_str) < key_paste_str_size) {
+                vkey = *key_paste_ptr++;
                 int col = 1;
                 log_debug("keyboard: key_paste_poll next vkey=&%02x", vkey);
                 switch (vkey) {
@@ -979,8 +997,8 @@ void key_paste_poll(void)
                 }
             }
             else {
-                al_free(key_paste_str);
-                key_paste_str = key_paste_ptr = NULL;
+                key_paste_str_size = 0;
+                key_paste_ptr = 0;
                 kp_state = KP_IDLE;
 
                 // Now we've finished, make the emulated machine's SHIFT/CTRL
