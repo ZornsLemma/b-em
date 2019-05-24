@@ -643,7 +643,7 @@ typedef enum {
 
 static kp_state_t kp_state = KP_IDLE;
 #define KEY_PASTE_STR_CAPACITY (1024)
-#define KEY_PASTE_THRESHOLD (64)
+#define KEY_PASTE_THRESHOLD (32)
 static unsigned char key_paste_str[KEY_PASTE_STR_CAPACITY];
 static size_t key_paste_str_size;
 static unsigned char *key_paste_ptr;
@@ -711,6 +711,7 @@ static void key_paste_add_vkey(uint8_t vkey1, uint8_t vkey2)
 
     size_t new_size = key_paste_str_size + 1 + ((vkey2 != 0xaa) ? 1 : 0);
     if (new_size >= KEY_PASTE_STR_CAPACITY) {
+        assert(key_paste_ptr);
         if (key_paste_ptr > key_paste_str) {
             log_debug("keyboard: key_paste_add_vkey moving down");
             size_t vkeys_left = key_paste_str_size - (key_paste_ptr - key_paste_str);
@@ -730,12 +731,14 @@ static void key_paste_add_vkey(uint8_t vkey1, uint8_t vkey2)
         }
     }
 
-    // If the buffer is getting too full, stop inserting key down events. We
-    // allow key up events in to avoid keys being stuck down unintentionally.
-    // This makes the undesirable out of memory case above unlikely, and has the
-    // more practical benefit that the user can't type ahead so much that
-    // there's a significant amount of activity after they actually stop typing.
-    if ((vkey1 == VKEY_DOWN) && (new_size >= KEY_PASTE_THRESHOLD)) {
+    // If the number of pending events gets too large, stop inserting key down
+    // events. We allow key up events in to avoid keys being stuck down
+    // unintentionally. This makes the undesirable out of memory case above
+    // unlikely, and has the more practical benefit that the user can't type
+    // ahead so much that there's a significant amount of activity after they
+    // actually stop typing.
+    size_t vkeys_left = key_paste_ptr ? (key_paste_str_size - (key_paste_ptr - key_paste_str)) : 0;
+    if ((vkey1 == VKEY_DOWN) && (vkeys_left >= KEY_PASTE_THRESHOLD)) {
         log_debug("keyboard: discarding key down as buffer over threshold");
         return;
     }
