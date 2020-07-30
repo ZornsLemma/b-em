@@ -1232,3 +1232,8 @@ void video_loadstate(FILE * f)
     vidclocks = getc(f) << 16;
     vidclocks = getc(f) << 24;
 }
+
+void video_doblit2()
+{
+    video_doblit(crtc_mode, crtc[4]);
+}

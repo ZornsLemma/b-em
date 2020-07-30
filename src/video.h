@@ -39,6 +39,7 @@ void video_reset(void);
 void video_poll(int clocks, int timer_enable);
 void video_savestate(FILE *f);
 void video_loadstate(FILE *f);
+void video_doblit2();
 
 void nula_reset(void);
 

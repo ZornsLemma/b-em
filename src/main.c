@@ -89,6 +89,7 @@ static double time_limit;
 static int fcount = 0;
 static fspeed_type_t fullspeed = FSPEED_NONE;
 static bool bempause  = false;
+static int current_speed = 4; // 100%
 
 const emu_speed_t emu_speeds[NUM_EMU_SPEEDS] = {
     {  "10%", 1.0 / (50.0 * 0.10), 1 },
@@ -286,7 +287,7 @@ void main_init(int argc, char *argv[])
     gui_allegro_init(queue, display);
 
     time_limit = 2.0 / 50.0;
-    if (!(timer = al_create_timer(1.0 / 50.0))) {
+    if (!(timer = al_create_timer(emu_speeds[current_speed].timer_interval))) {
         log_fatal("main: unable to create timer");
         exit(1);
     }
@@ -470,6 +471,11 @@ static void main_timer(ALLEGRO_EVENT *event)
     double delay = now - event->any.timestamp;
 
     if (delay < time_limit) {
+        if (current_speed == EMU_SPEED_PAUSED) {
+            video_doblit2();
+            return;
+        }
+
         if (autoboot)
             autoboot--;
         framesrun++;
@@ -619,6 +625,7 @@ void main_close()
 void main_setspeed(int speed)
 {
     log_debug("main: setspeed %d", speed);
+    current_speed = speed;
     if (speed == EMU_SPEED_FULL)
         main_start_fullspeed();
     else {
@@ -639,6 +646,8 @@ void main_setspeed(int speed)
             char buf[120];
             snprintf(buf, 120, "%s (paused)", VERSION_STR);
             al_set_window_title(tmp_display, buf);
+            al_set_timer_speed(timer, 1.0 / (50.0 * 0.1));
+            al_start_timer(timer);
         }
     }
     emuspeed = speed;
