@@ -752,9 +752,9 @@ ALLEGRO_DISPLAY *video_init(void)
     int temp, temp2, left;
 
 #ifdef ALLEGRO_GTK_TOPLEVEL
-    al_set_new_display_flags(ALLEGRO_WINDOWED | ALLEGRO_GTK_TOPLEVEL | ALLEGRO_RESIZABLE);
+    al_set_new_display_flags(ALLEGRO_WINDOWED | ALLEGRO_GTK_TOPLEVEL | ALLEGRO_RESIZABLE | ALLEGRO_GENERATE_EXPOSE_EVENTS);
 #else
-    al_set_new_display_flags(ALLEGRO_WINDOWED | ALLEGRO_RESIZABLE);
+    al_set_new_display_flags(ALLEGRO_WINDOWED | ALLEGRO_RESIZABLE | ALLEGRO_GENERATE_EXPOSE_EVENTS);
 #endif
     video_set_window_size(true);
     if ((display = al_create_display(winsizex, winsizey)) == NULL) {
@@ -1231,4 +1231,9 @@ void video_loadstate(FILE * f)
     vidclocks = getc(f) << 8;
     vidclocks = getc(f) << 16;
     vidclocks = getc(f) << 24;
+}
+
+void video_doblit2()
+{
+    video_doblit(crtc_mode, crtc[4]);
 }

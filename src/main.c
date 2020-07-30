@@ -577,6 +577,9 @@ void main_run()
             case ALLEGRO_EVENT_DISPLAY_SWITCH_OUT:
                 lost_focus();
                 break;
+            case ALLEGRO_EVENT_DISPLAY_EXPOSE:
+                video_doblit2();
+                break;
         }
     }
     log_debug("main: end loop");
