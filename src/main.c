@@ -638,6 +638,11 @@ void main_setspeed(int speed)
             log_debug("main: new speed#%d, timer interval=%g, vid_fskipmax=%d", speed, emu_speeds[speed].timer_interval, vid_fskipmax);
             al_start_timer(timer);
         }
+        else {
+            char buf[120];
+            snprintf(buf, 120, "%s (paused)", VERSION_STR);
+            al_set_window_title(tmp_display, buf);
+        }
     }
     emuspeed = speed;
 }
