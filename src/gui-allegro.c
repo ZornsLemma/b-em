@@ -45,6 +45,7 @@ typedef struct {
 
 static ALLEGRO_MENU *disc_menu;
 static ALLEGRO_MENU *rom_menu;
+static ALLEGRO_MENU *speed_menu;
 
 static inline int menu_id_num(menu_id_t id, int num)
 {
@@ -476,6 +477,7 @@ static ALLEGRO_MENU *create_speed_menu(void)
     for (i = 0; i < NUM_EMU_SPEEDS; i++)
         add_radio_item(menu, emu_speeds[i].name, IDM_SPEED, i, emuspeed);
     add_radio_item(menu, "Full-speed", IDM_SPEED, EMU_SPEED_FULL, emuspeed);
+    speed_menu = menu;
     return menu;
 }
 
@@ -651,6 +653,12 @@ static void edit_print_clip(ALLEGRO_EVENT *event)
 void gui_set_disc_wprot(int drive, bool enabled)
 {
     al_set_menu_item_flags(disc_menu, menu_id_num(IDM_DISC_WPROT, drive), enabled ? ALLEGRO_MENU_ITEM_CHECKBOX|ALLEGRO_MENU_ITEM_CHECKED : ALLEGRO_MENU_ITEM_CHECKBOX);
+}
+
+void gui_set_speed(int speed, int old_speed)
+{
+    al_set_menu_item_flags(speed_menu, menu_id_num(IDM_SPEED, old_speed), ALLEGRO_MENU_ITEM_CHECKBOX);
+    al_set_menu_item_flags(speed_menu, menu_id_num(IDM_SPEED, speed), ALLEGRO_MENU_ITEM_CHECKBOX|ALLEGRO_MENU_ITEM_CHECKED);
 }
 
 static void disc_choose_new(ALLEGRO_EVENT *event, const char *ext)
@@ -1246,7 +1254,7 @@ void gui_allegro_event(ALLEGRO_EVENT *event)
             break;
 #endif
         case IDM_SPEED:
-            main_setspeed(radio_event_simple(event, emuspeed));
+            main_setspeed(menu_get_num(event));
             break;
         case IDM_DEBUGGER:
             debug_toggle_core();

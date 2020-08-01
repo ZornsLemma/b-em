@@ -100,5 +100,6 @@ extern void gui_allegro_init(ALLEGRO_EVENT_QUEUE *queue, ALLEGRO_DISPLAY *displa
 extern void gui_allegro_event(ALLEGRO_EVENT *event);
 extern void gui_allegro_set_eject_text(int drive, ALLEGRO_PATH *path);
 extern void gui_set_disc_wprot(int drive, bool enabled);
+extern void gui_set_speed(int speed, int old_speed);
 
 #endif
